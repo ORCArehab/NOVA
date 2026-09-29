@@ -1,109 +1,91 @@
-import { CalendarDays, CircleCheck, CloudUpload, FilePlus2, FileSignature, Users } from 'lucide-react'
+import { useState } from 'react'
 import './RoleSelectScreen.css'
-import orcaVideo from '../assets/orca-vid.mp4'
-import { formatDateLabel } from '../lib/dateUtils'
-import { listPatients, listRoundingDates } from '../lib/patientStore'
+import RoundProgress from './RoundProgress'
+import { formatDate, todayDateKey } from '../lib/dateUtils'
+import { listRoundingDates, type RoundingDateSummary } from '../lib/patientStore'
+import { groupRoundsForHome } from '../lib/roundingProgress'
 
 interface Props {
   teamId: string
-  onOpenAllPatients: () => void
-  onOpenAwaitingSignature: () => void
-  onOpenNeedsUpload: () => void
-  onOpenNoNoteYet: () => void
   onOpenRoundingDate: (date: string) => void
+  onOpenAnalyzer: () => void
 }
 
-// The home dashboard, scoped to the signed-in user's own team — every
-// figure here is that team's patients only, not the whole practice's.
-function RoleSelectScreen({
-  teamId,
-  onOpenAllPatients,
-  onOpenAwaitingSignature,
-  onOpenNeedsUpload,
-  onOpenNoNoteYet,
-  onOpenRoundingDate,
-}: Props) {
-  const patients = listPatients(teamId)
-  const total = patients.length
-  const awaitingSignature = patients.filter((p) => p.reworded && !p.signed).length
-  const needsUpload = patients.filter((p) => p.signed && !p.uploaded).length
-  const noNoteYet = patients.filter((p) => !p.reworded).length
-  const roundingDates = listRoundingDates(teamId)
+// Past this many previous rounds, the rest sit behind "Show older" so a
+// long history doesn't bury today's round.
+const PREVIOUS_VISIBLE = 10
+
+function RoundCard({ round, isToday, onOpen }: { round: RoundingDateSummary; isToday: boolean; onOpen: () => void }) {
+  return (
+    <button type="button" className="round-card" onClick={onOpen}>
+      <span className="round-card-top">
+        <span className="round-card-date">{formatDate(round.date)}</span>
+        {isToday && <span className="round-today-badge">Today</span>}
+      </span>
+      <RoundProgress round={round} />
+    </button>
+  )
+}
+
+// Home: which round am I working on, and how far along is it? Everything
+// else (per-status breakdowns, the patients themselves) is one click away
+// on the Patients screen's date view, so it isn't repeated here.
+function RoleSelectScreen({ teamId, onOpenRoundingDate, onOpenAnalyzer }: Props) {
+  const [showAllPrevious, setShowAllPrevious] = useState(false)
+  const today = todayDateKey()
+  const { current, upcoming, previous } = groupRoundsForHome(listRoundingDates(teamId), today)
+  const visiblePrevious = showAllPrevious ? previous : previous.slice(0, PREVIOUS_VISIBLE)
+
+  const renderCard = (round: RoundingDateSummary) => (
+    <li key={round.date}>
+      <RoundCard round={round} isToday={round.date === today} onOpen={() => onOpenRoundingDate(round.date)} />
+    </li>
+  )
 
   return (
-    <div className="role-select-screen">
-      <div className="role-select-content">
-        <div className="role-select-video-card">
-          <video className="role-select-video" src={orcaVideo} autoPlay loop muted playsInline />
-        </div>
+    <div className="home-screen">
+      <div className="home-content">
+        <h1 className="home-title">Rounding Dates</h1>
 
-        <div className="home-main-grid">
-          <div className="home-stats">
-            <button type="button" className="stat-tile stat-tile-interactive" onClick={onOpenAllPatients}>
-              <Users size={20} className="stat-tile-icon" />
-              <span className="stat-tile-value">{total}</span>
-              <span className="stat-tile-label">Total patients</span>
-            </button>
-            <button type="button" className="stat-tile stat-tile-interactive" onClick={onOpenNoNoteYet}>
-              <FilePlus2 size={20} className="stat-tile-icon" />
-              <span className="stat-tile-value">{noNoteYet}</span>
-              <span className="stat-tile-label">No note yet</span>
-            </button>
-            <button
-              type="button"
-              className="stat-tile stat-tile-interactive stat-tile-warning"
-              onClick={onOpenAwaitingSignature}
-            >
-              <FileSignature size={20} className="stat-tile-icon" />
-              <span className="stat-tile-value">{awaitingSignature}</span>
-              <span className="stat-tile-label">Awaiting provider signature</span>
-            </button>
-            <button
-              type="button"
-              className="stat-tile stat-tile-interactive stat-tile-warning"
-              onClick={onOpenNeedsUpload}
-            >
-              <CloudUpload size={20} className="stat-tile-icon" />
-              <span className="stat-tile-value">{needsUpload}</span>
-              <span className="stat-tile-label">Need to be uploaded</span>
-            </button>
+        {!current && upcoming.length === 0 ? (
+          <div className="home-empty">
+            <p>No rounding dates yet.</p>
+            <p className="home-empty-hint">
+              Import a census with the{' '}
+              <button type="button" className="home-link" onClick={onOpenAnalyzer}>
+                Analyzer
+              </button>
+              , or{' '}
+              <button type="button" className="home-link" onClick={() => onOpenRoundingDate(today)}>
+                add patients to today’s round
+              </button>
+              .
+            </p>
           </div>
+        ) : (
+          <>
+            {current && <ul className="round-list">{renderCard(current)}</ul>}
 
-          {roundingDates.length > 0 && (
-            <div className="rounding-dates-card">
-              <h2 className="rounding-dates-heading">
-                <CalendarDays size={18} />
-                Rounding Dates
-              </h2>
-              <ul className="rounding-dates-list">
-                {roundingDates.map((rd) => {
-                  const isComplete = rd.complete === rd.total
-                  return (
-                    <li key={rd.date}>
-                      <button type="button" className="rounding-date-item" onClick={() => onOpenRoundingDate(rd.date)}>
-                        <div className="rounding-date-row">
-                          <span className="rounding-date-label">{formatDateLabel(rd.date)}</span>
-                          {isComplete && (
-                            <span className="rounding-date-complete-badge">
-                              <CircleCheck size={15} />
-                              Complete
-                            </span>
-                          )}
-                        </div>
-                        <div className="rounding-date-counts">
-                          <span>{rd.total} patients</span>
-                          <span>{rd.complete} done</span>
-                        </div>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
-        </div>
+            {upcoming.length > 0 && (
+              <section className="home-section">
+                <h2 className="home-section-heading">Upcoming</h2>
+                <ul className="round-list">{upcoming.map(renderCard)}</ul>
+              </section>
+            )}
 
-        <p className="role-select-placeholder">Select a patient above, or from the Patients screen, to get started.</p>
+            {previous.length > 0 && (
+              <section className="home-section">
+                <h2 className="home-section-heading">Previous</h2>
+                <ul className="round-list">{visiblePrevious.map(renderCard)}</ul>
+                {previous.length > PREVIOUS_VISIBLE && (
+                  <button type="button" className="home-link home-show-more" onClick={() => setShowAllPrevious((v) => !v)}>
+                    {showAllPrevious ? 'Show fewer' : `Show ${previous.length - PREVIOUS_VISIBLE} older`}
+                  </button>
+                )}
+              </section>
+            )}
+          </>
+        )}
       </div>
     </div>
   )

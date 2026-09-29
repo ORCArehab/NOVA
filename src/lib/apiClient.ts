@@ -1,6 +1,7 @@
 import type {
   ApiErrorResponse,
   ApplySuggestionsResponse,
+  AuthSession,
   ChatHistoryMessage,
   ChatResponse,
   NoteType,
@@ -8,10 +9,10 @@ import type {
   RewordResponse,
   Suggestion,
   SuggestionsResponse,
-  TeamChatMessage,
   TeamMember,
   UpdateNoteResponse,
 } from './types'
+import type { HeaderReading, RowReading } from './analyzer/types'
 
 export class ApiError extends Error {}
 
@@ -79,34 +80,49 @@ export function applySuggestions(noteText: string, suggestions: string[]): Promi
   )
 }
 
-// The team roster, sign-up, and sign-in — see server/routes/team.js and
-// server/userStore.js. No password yet; email is just the account's unique
-// identifier for this test-run stage of the app.
+// Google Workspace SSO — see server/routes/auth.js. There's no sign-in
+// form: the browser is sent to /api/auth/google/login, and comes back with
+// a session cookie that every other /api call rides on automatically.
+export const GOOGLE_LOGIN_URL = '/api/auth/google/login'
+
+// The signed-in identity, or null if there's no valid session. member is
+// null on someone's first visit, until they pick a role.
+export async function fetchSession(): Promise<AuthSession | null> {
+  let res: Response
+  try {
+    res = await fetch('/api/auth/me')
+  } catch {
+    throw new ApiError("Can't reach the server. Is it running?")
+  }
+  if (res.status === 401) return null
+  const data = await res.json().catch(() => null)
+  if (!res.ok) throw new ApiError(readErrorMessage(data))
+  return data as AuthSession
+}
+
+export function completeOnboarding(role: Role, supervisorId: string | null): Promise<TeamMember> {
+  return postJson<TeamMember>('/api/auth/onboard', { role, supervisorId })
+}
+
+export async function signOut(): Promise<void> {
+  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined)
+}
+
+// Local dev only — the server 404s this anywhere else.
+export function demoSignIn(role: Role): Promise<TeamMember> {
+  return postJson<TeamMember>('/api/auth/demo', { role })
+}
+
 export function fetchTeamRoster(): Promise<TeamMember[]> {
   return getJson<TeamMember[]>('/api/team')
 }
 
-export interface SignUpData {
-  name: string
-  email: string
-  role: Role
-  supervisorId: string | null
+// Document Analyzer — see server/routes/analyzeDocument.js. Only cropped
+// highlighted rows and page 1's header are sent, never the whole PDF.
+export function readDocumentHeader(image: string): Promise<HeaderReading> {
+  return postJson<HeaderReading>('/api/analyze-document/header', { image })
 }
 
-export function signUp(data: SignUpData): Promise<TeamMember> {
-  return postJson<TeamMember>('/api/team/signup', data)
-}
-
-export function signIn(email: string): Promise<TeamMember> {
-  return postJson<TeamMember>('/api/team/signin', { email })
-}
-
-// Team Chat — scoped per team (see server/routes/teamChat.js), so only
-// people on the same team ever see or post into the same message list.
-export function fetchTeamMessages(teamId: string): Promise<TeamChatMessage[]> {
-  return getJson<TeamChatMessage[]>(`/api/team-chat?teamId=${encodeURIComponent(teamId)}`)
-}
-
-export function postTeamMessage(teamId: string, author: string, text: string): Promise<TeamChatMessage> {
-  return postJson<TeamChatMessage>('/api/team-chat', { teamId, author, text })
+export function readDocumentRows(rows: { id: string; image: string }[]): Promise<RowReading[]> {
+  return postJson<{ rows: RowReading[] }>('/api/analyze-document/rows', { rows }).then((r) => r.rows)
 }

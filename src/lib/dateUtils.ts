@@ -21,11 +21,16 @@ export function daysAgoDateKey(days: number): string {
 // that's what a provider actually scans for in a rounding-date list.
 export function formatDateLabel(key: string | undefined | null): string {
   if (!key) return 'Unknown date'
-  const [year, month, day] = key.split('-').map(Number)
-  const date = new Date(year, month - 1, day)
-  const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const label = formatDate(key)
 
   if (key === todayDateKey()) return `${label} (Today)`
   if (key === daysAgoDateKey(1)) return `${label} (Yesterday)`
   return label
+}
+
+// "Aug 15, 2026" with no suffix — for places that mark today some other
+// way (Home's TODAY badge).
+export function formatDate(key: string): string {
+  const [year, month, day] = key.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }

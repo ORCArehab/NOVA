@@ -22,41 +22,6 @@
   margin: 0;
 }
 
-.team-invite-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
-  padding: var(--gap);
-}
-
-.team-invite-form input {
-  width: 100%;
-  box-sizing: border-box;
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px 12px;
-  color: var(--text-h);
-  font: inherit;
-}
-
-.team-invite-form input:focus {
-  outline: none;
-  border-color: var(--accent-border);
-}
-
-.team-invite-role-toggle {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 2px;
-  gap: 2px;
-  width: fit-content;
-}
-
 .team-role-option {
   border: none;
   background: transparent;
@@ -71,24 +36,6 @@
 .team-role-option-active {
   background: var(--accent-bg);
   color: var(--accent);
-}
-
-.team-invite-note {
-  color: var(--text);
-  font-size: 13px;
-  margin: 0;
-}
-
-.team-invite-error {
-  color: #dc2626;
-  font-size: 13px;
-  margin: 0;
-}
-
-.team-invite-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .team-list {

@@ -1,83 +1,103 @@
-import { ArrowLeft, Check, MessageCircle, X } from 'lucide-react'
+import { ArrowLeft, Check, FileSignature } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
+import AnalyzerScreen from './components/AnalyzerScreen'
+import AssistPanel from './components/AssistPanel'
 import ChatPanel from './components/ChatPanel'
-import ChatScreen from './components/ChatScreen'
 import CompletenessPanel, { type CompletenessStatus } from './components/CompletenessPanel'
 import ImportPdfPanel from './components/ImportPdfPanel'
-import InstructionsScreen from './components/InstructionsScreen'
 import LoginScreen from './components/LoginScreen'
+import OnboardingScreen from './components/OnboardingScreen'
 import OutputPanel, { type RewordStatus } from './components/OutputPanel'
-import PatientListScreen, { type PatientFilter } from './components/PatientListScreen'
+import PatientListScreen from './components/PatientListScreen'
 import RoleSelectScreen from './components/RoleSelectScreen'
 import SuggestionsPanel from './components/SuggestionsPanel'
 import TaskBar from './components/TaskBar'
 import TeamScreen from './components/TeamScreen'
 import UploadToolScreen from './components/UploadToolScreen'
-import { ApiError, applySuggestions, rewordText, updateNoteWithAnswer } from './lib/apiClient'
+import { ApiError, applySuggestions, fetchSession, rewordText, signOut, updateNoteWithAnswer } from './lib/apiClient'
 import { checkCompletenessLocal } from './lib/completenessCheck'
-import { getPatientById, updatePatientNote } from './lib/patientStore'
+import { getPatientById, saveNote } from './lib/patientStore'
 import { resolveTeamId } from './lib/team'
-import type { CurrentUser, NoteType, Patient, TeamMember } from './lib/types'
+import type { CurrentUser, NoteType, Patient, Signer, TeamMember } from './lib/types'
 
-const SESSION_STORAGE_KEY = 'nova:session'
-
-interface PersistedSession {
-  extractedText: string | null
-  reworded: string | null
-  noteType: NoteType
-  selectedPatientId: string | null
-  selectedPatientName: string | null
-  signed: boolean
-  signedAt: number | null
-}
-
-function loadPersistedSession(): PersistedSession | null {
-  try {
-    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as PersistedSession) : null
-  } catch {
-    return null
+// server/routes/auth.js sends the browser back to /?authError=<code> when
+// Google sign-in is rejected. Read once, then scrubbed from the address
+// bar so a refresh retries sign-in instead of re-showing a stale error.
+function consumeAuthError(): string | null {
+  const params = new URLSearchParams(window.location.search)
+  const code = params.get('authError')
+  if (code) {
+    params.delete('authError')
+    const query = params.toString()
+    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''))
   }
+  return code
 }
+
+type AuthState =
+  | { status: 'loading' }
+  | { status: 'signedOut'; authError: string | null; deliberate: boolean }
+  // Google identified them, but they have no account yet — first visit.
+  | { status: 'onboarding'; name: string; email: string }
+  | { status: 'signedIn' }
 
 function App() {
-  const persisted = useRef(loadPersistedSession()).current
-
-  // Not persisted — always starts unset on a fresh load, so signing in is
-  // an explicit choice every time rather than silently carrying over to
-  // whoever opens the tab next (e.g. a scribe-to-provider handoff on a
-  // shared workstation). Everything else on screen — which team's patients
-  // show up, which role's panels render — is derived from this.
+  // Restored from the Google SSO session cookie on load (see the effect
+  // below), so a refresh — or arriving again from the Workspace app
+  // launcher — doesn't ask anyone to sign in twice. Sign Out clears it on
+  // the server. Everything else on screen — which team's patients show
+  // up, which role's panels render — is derived from this.
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
+
+  useEffect(() => {
+    const authError = consumeAuthError()
+    fetchSession()
+      .then((session) => {
+        if (!session) {
+          setAuth({ status: 'signedOut', authError, deliberate: false })
+        } else if (!session.member) {
+          setAuth({ status: 'onboarding', name: session.name, email: session.email })
+        } else {
+          handleLogin(session.member)
+        }
+      })
+      .catch(() => setAuth({ status: 'signedOut', authError: 'failed', deliberate: false }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 'home' is the dashboard landing page; 'app' is the note workspace.
-  // 'patients'/'upload'/'instructions'/'team' overlay whichever of those is
+  // 'patients' (one rounding date)/'upload'/'analyzer'/'team' overlay whichever of those is
   // current — they don't replace the state underneath, so returning from
-  // any of them lands back where you were. Chat isn't one of these — it's
-  // a docked drawer (see chatOpen) reachable from every screen at once,
-  // not a screen you navigate to and away from.
-  const [screen, setScreen] = useState<'home' | 'app' | 'patients' | 'upload' | 'instructions' | 'team'>('home')
-  // The floating chat button toggles this from anywhere in the app —
-  // opening it narrows .app-page-content rather than replacing it, so
-  // whatever screen you're on stays visible alongside the chat.
-  const [chatOpen, setChatOpen] = useState(false)
-  const [patientFilter, setPatientFilter] = useState<PatientFilter>({})
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(persisted?.selectedPatientId ?? null)
-  const [selectedPatientName, setSelectedPatientName] = useState<string | null>(persisted?.selectedPatientName ?? null)
+  // any of them lands back where you were.
+  const [screen, setScreen] = useState<'home' | 'app' | 'patients' | 'upload' | 'analyzer' | 'team'>('home')
+  // Which round the patients screen shows.
+  const [roundDate, setRoundDate] = useState<string | null>(null)
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [selectedPatientName, setSelectedPatientName] = useState<string | null>(null)
 
-  const [rewordStatus, setRewordStatus] = useState<RewordStatus>(persisted?.reworded ? 'done' : 'idle')
-  const [reworded, setReworded] = useState<string | null>(persisted?.reworded ?? null)
+  const [rewordStatus, setRewordStatus] = useState<RewordStatus>('idle')
+  const [reworded, setReworded] = useState<string | null>(null)
   const [previousReworded, setPreviousReworded] = useState<string | null>(null)
   const [rewordError, setRewordError] = useState<string | null>(null)
-  const [extractedText, setExtractedText] = useState<string | null>(persisted?.extractedText ?? null)
-  const [noteType, setNoteType] = useState<NoteType>(persisted?.noteType ?? 'initial')
+  const [extractedText, setExtractedText] = useState<string | null>(null)
+  const [noteType, setNoteType] = useState<NoteType>('initial')
 
   // A provider's signature attests to the note text as it stood at sign
   // time — any further edit (manual or AI-applied) invalidates it, so it
   // gets cleared automatically rather than silently going stale.
-  const [signed, setSigned] = useState(persisted?.signed ?? false)
-  const [signedAt, setSignedAt] = useState<number | null>(persisted?.signedAt ?? null)
+  const [signed, setSigned] = useState(false)
+  const [signedAt, setSignedAt] = useState<number | null>(null)
+  const [signedBy, setSignedBy] = useState<Signer | null>(null)
+
+  // The stored version of the note this workspace loaded (its updatedAt).
+  // Autosave only writes over that exact version — if the note changed
+  // anywhere else meanwhile (another tab or window, a sign/unsign from the
+  // patient preview), saving stops and noteConflict asks for a reload
+  // instead of silently overwriting someone's work.
+  const baseUpdatedAtRef = useRef(0)
+  const [noteConflict, setNoteConflict] = useState(false)
 
   const [completenessStatus, setCompletenessStatus] = useState<CompletenessStatus>('idle')
   const [verdict, setVerdict] = useState<string | null>(null)
@@ -94,43 +114,14 @@ function App() {
   // original PDF text and silently discarding chat/suggestion progress.
   const lastOperationRef = useRef<(() => void) | null>(null)
 
-  // Restore the completeness check for a rehydrated note on first mount —
-  // it's cheap to recompute locally, so it isn't part of persisted state.
+  // Autosave to the patient's stored note, guarded against overwriting
+  // changes made elsewhere (see baseUpdatedAtRef).
   useEffect(() => {
-    if (reworded) runCompletenessCheck(reworded)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    try {
-      if (extractedText || reworded) {
-        const toStore: PersistedSession = {
-          extractedText,
-          reworded,
-          noteType,
-          selectedPatientId,
-          selectedPatientName,
-          signed,
-          signedAt,
-        }
-        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(toStore))
-      } else {
-        sessionStorage.removeItem(SESSION_STORAGE_KEY)
-      }
-    } catch {
-      // sessionStorage can be unavailable (private browsing, quota) —
-      // autosave is a nice-to-have, not something worth surfacing an error for.
-    }
-  }, [extractedText, reworded, noteType, selectedPatientId, selectedPatientName, signed, signedAt])
-
-  // Mirrors the sessionStorage autosave above, but keyed to a specific
-  // patient in localStorage — only runs once a patient has actually been
-  // selected from the Patients screen, so ad-hoc single-note use (no
-  // patient tracking) is unaffected.
-  useEffect(() => {
-    if (!selectedPatientId) return
-    updatePatientNote(selectedPatientId, { noteType, extractedText, reworded, signed, signedAt })
-  }, [selectedPatientId, noteType, extractedText, reworded, signed, signedAt])
+    if (!selectedPatientId || noteConflict) return
+    const result = saveNote(selectedPatientId, { noteType, extractedText, reworded, signed, signedAt, signedBy }, baseUpdatedAtRef.current)
+    if (result.status === 'saved') baseUpdatedAtRef.current = result.updatedAt
+    else if (result.status === 'conflict') setNoteConflict(true)
+  }, [selectedPatientId, noteType, extractedText, reworded, signed, signedAt, signedBy, noteConflict])
 
   // Loads a patient's stored note into the workspace, the same way a fresh
   // PDF import would — extractedText changing is what the Chat/Suggestions
@@ -148,6 +139,9 @@ function App() {
     setRewordStatus(patient.reworded ? 'done' : 'idle')
     setSigned(patient.signed ?? false)
     setSignedAt(patient.signedAt ?? null)
+    setSignedBy(patient.signedBy ?? null)
+    baseUpdatedAtRef.current = patient.updatedAt
+    setNoteConflict(false)
     lastOperationRef.current = null
     setNoteVersion((v) => v + 1)
     if (patient.reworded) {
@@ -176,8 +170,8 @@ function App() {
     setCompletenessStatus('idle')
     setVerdict(null)
     setMissingItems([])
-    setSigned(false)
-    setSignedAt(null)
+    clearSignature()
+    setNoteConflict(false)
     setNoteVersion((v) => v + 1)
   }
 
@@ -190,20 +184,40 @@ function App() {
     setPreviousReworded(baseline)
     setReworded(result)
     setRewordStatus('done')
-    setSigned(false)
-    setSignedAt(null)
+    clearSignature()
     setNoteVersion((v) => v + 1)
     runCompletenessCheck(result)
   }
 
+  // A provider's signature attests to the note text as it stood at sign
+  // time — any later edit, by anyone, clears it (applyRewordResult,
+  // handleOutputChange), so a signature is never left on changed text.
+  function clearSignature() {
+    setSigned(false)
+    setSignedAt(null)
+    setSignedBy(null)
+  }
+
+  // Provider-only. Checked here, not just by hiding the button — though
+  // with notes stored in the browser (lib/patientStore.ts) there's no
+  // server to enforce it yet; see README.
   function handleSignNote() {
+    if (currentUser?.role !== 'provider' || !reworded) return
     setSigned(true)
     setSignedAt(Date.now())
+    setSignedBy({ id: currentUser.id, name: currentUser.name })
   }
 
   function handleUnsignNote() {
-    setSigned(false)
-    setSignedAt(null)
+    if (currentUser?.role !== 'provider') return
+    clearSignature()
+  }
+
+  // Throws away this workspace's unsaved view and loads what's stored now.
+  function handleReloadNote() {
+    const patient = selectedPatientId ? getPatientById(selectedPatientId) : null
+    if (patient) handleSelectPatient(patient)
+    else handleLeaveWorkspace()
   }
 
   async function runReword(text: string) {
@@ -278,10 +292,7 @@ function App() {
   // Only handleDismissDiff (the "Clear highlights" button) drops it.
   function handleOutputChange(text: string) {
     setReworded(text)
-    if (signed) {
-      setSigned(false)
-      setSignedAt(null)
-    }
+    if (signed) clearSignature()
   }
 
   function handleDismissDiff() {
@@ -293,27 +304,36 @@ function App() {
     if (text) runCompletenessCheck(text)
   }
 
-  function handleOpenPatients(filter: PatientFilter = {}) {
-    setPatientFilter(filter)
+  function handleOpenRound(date: string) {
+    setRoundDate(date)
     setScreen('patients')
   }
 
-  function handleOpenPatientNoteFromChat(patientId: string) {
-    const patient = getPatientById(patientId)
-    if (!patient) return
-    handleSelectPatient(patient)
+  // Back/Done from the note workspace: return to the open patient's round,
+  // or Home when no patient was open.
+  function handleLeaveWorkspace() {
+    const patient = selectedPatientId ? getPatientById(selectedPatientId) : null
+    if (patient) handleOpenRound(patient.roundingDate)
+    else setScreen('home')
   }
 
-  // Picking a name on LoginScreen is what "logging in" means for this
-  // prototype — it sets both role and team for the session in one step.
+  // Sets both role and team for the session in one step — called with the
+  // account behind the SSO session, a just-finished onboarding, or (local
+  // dev only) a demo account.
   function handleLogin(member: TeamMember) {
     setCurrentUser({ id: member.id, name: member.name, email: member.email, role: member.role, teamId: resolveTeamId(member) })
+    setAuth({ status: 'signedIn' })
     setScreen('home')
   }
 
-  function handleSignOut() {
+  // Ends the app's session, not their Google Workspace one — and lands on
+  // a "signed out" screen rather than bouncing straight back through
+  // Google, which would silently sign them right back in.
+  async function handleSignOut() {
+    await signOut()
     resetWorkspace()
     setCurrentUser(null)
+    setAuth({ status: 'signedOut', authError: null, deliberate: true })
     setScreen('home')
   }
 
@@ -325,43 +345,91 @@ function App() {
     setScreen('home')
   }
 
-  if (!currentUser) {
-    pageContent = <LoginScreen onLogin={handleLogin} />
-  } else if (screen === 'patients') {
+  if (auth.status === 'loading') {
+    pageContent = null
+  } else if (auth.status === 'onboarding') {
+    pageContent = (
+      <OnboardingScreen name={auth.name} email={auth.email} onComplete={handleLogin} onSignOut={() => void handleSignOut()} />
+    )
+  } else if (!currentUser) {
+    pageContent = (
+      <LoginScreen
+        authError={auth.status === 'signedOut' ? auth.authError : null}
+        signedOut={auth.status === 'signedOut' && auth.deliberate}
+        onLogin={handleLogin}
+      />
+    )
+  } else if (screen === 'patients' && roundDate) {
     pageContent = (
       <PatientListScreen
+        // Remount per round — filters and the preview belong to one round.
+        key={roundDate}
         teamId={currentUser.teamId}
         canSign={currentUser.role === 'provider'}
+        signer={{ id: currentUser.id, name: currentUser.name }}
         activePatientId={selectedPatientId}
-        initialFilter={patientFilter}
+        roundingDate={roundDate}
         onSelect={handleSelectPatient}
         onDelete={handleDeletePatient}
       />
     )
   } else if (screen === 'upload') {
     pageContent = <UploadToolScreen teamId={currentUser.teamId} />
-  } else if (screen === 'instructions') {
-    pageContent = <InstructionsScreen />
+  } else if (screen === 'analyzer') {
+    pageContent = (
+      <AnalyzerScreen teamId={currentUser.teamId} onViewPatients={handleOpenRound} />
+    )
   } else if (screen === 'team') {
     pageContent = <TeamScreen currentUser={currentUser} />
   } else if (screen === 'home') {
     pageContent = (
       <RoleSelectScreen
         teamId={currentUser.teamId}
-        onOpenAllPatients={() => handleOpenPatients()}
-        onOpenAwaitingSignature={() => handleOpenPatients({ status: 'awaitingSignature' })}
-        onOpenNeedsUpload={() => setScreen('upload')}
-        onOpenNoNoteYet={() => handleOpenPatients({ status: 'noNote' })}
-        onOpenRoundingDate={(date) => handleOpenPatients({ roundingDate: date })}
+        onOpenRoundingDate={handleOpenRound}
+        onOpenAnalyzer={() => setScreen('analyzer')}
       />
     )
   } else {
-    const role = currentUser.role
+    const isProvider = currentUser.role === 'provider'
+
+    // One role/status-aware action. Scribes hand off; providers sign.
+    // Nobody signs an empty note, and a signature shows who and when.
+    let noteAction: ReactNode = null
+    if (signed) {
+      noteAction = (
+        <span className="note-signed">
+          <span className="note-signed-label">
+            Signed{signedBy ? ` by ${signedBy.name}` : ''}
+            {signedAt ? ` on ${new Date(signedAt).toLocaleString()}` : ''}
+          </span>
+          {isProvider && (
+            <button type="button" className="note-text-button" onClick={handleUnsignNote}>
+              Unsign
+            </button>
+          )}
+        </span>
+      )
+    } else if (reworded && isProvider) {
+      noteAction = (
+        <button type="button" className="btn note-primary" onClick={handleSignNote} disabled={noteConflict}>
+          <FileSignature size={15} />
+          Sign Note
+        </button>
+      )
+    } else if (reworded) {
+      noteAction = (
+        <button type="button" className="btn note-primary" onClick={handleLeaveWorkspace}>
+          <Check size={15} />
+          Ready for Provider
+        </button>
+      )
+    }
+
     pageContent = (
       <div className="app-container">
         <div className="app-topbar">
           <div className="app-topbar-left">
-            <button type="button" className="btn btn-sm" onClick={() => handleOpenPatients()}>
+            <button type="button" className="btn btn-sm" onClick={handleLeaveWorkspace}>
               <ArrowLeft size={15} />
               Back
             </button>
@@ -369,36 +437,45 @@ function App() {
               {selectedPatientName ? `Patient: ${selectedPatientName}` : 'No patient selected'}
             </span>
           </div>
-          <div className="app-topbar-actions">
-            <button type="button" className="btn btn-sm" onClick={() => handleOpenPatients()}>
-              <Check size={15} />
-              Done
+          <div className="app-topbar-actions">{noteAction}</div>
+        </div>
+        {noteConflict && (
+          <div className="note-conflict" role="alert">
+            <span>
+              This note was changed somewhere else (another tab or window) after you opened it, so changes made here
+              since then weren’t saved.
+            </span>
+            <button type="button" className="btn btn-sm" onClick={handleReloadNote}>
+              Reload note
             </button>
           </div>
-        </div>
-        <div className={role === 'provider' ? 'app-shell app-shell-provider' : 'app-shell'}>
-          {role === 'scribe' && (
-            <div className="left-column">
-              <ImportPdfPanel noteType={noteType} onNoteTypeChange={setNoteType} onExtracted={handleExtracted} />
-              <CompletenessPanel
-                status={completenessStatus}
-                verdict={verdict}
-                missingItems={missingItems}
-                onRecheck={handleRecheckCompleteness}
-              />
-            </div>
-          )}
-          {role === 'scribe' && (
-            <ChatPanel extractedText={extractedText} currentNoteText={reworded} onAnswer={handleChatAnswer} />
-          )}
-          {role === 'provider' && (
-            <SuggestionsPanel
-              noteText={reworded}
-              originalText={extractedText}
-              noteVersion={noteVersion}
-              onApply={handleApplySuggestions}
+        )}
+        {/* One workspace for every role — the same note, panels, and AI
+            tools. Roles differ only in capabilities: providers also get AI
+            Suggestions and signing. */}
+        <div className="app-shell">
+          <div className="left-column">
+            <ImportPdfPanel noteType={noteType} onNoteTypeChange={setNoteType} onExtracted={handleExtracted} />
+            <CompletenessPanel
+              status={completenessStatus}
+              verdict={verdict}
+              missingItems={missingItems}
+              onRecheck={handleRecheckCompleteness}
             />
-          )}
+          </div>
+          <AssistPanel
+            interview={<ChatPanel extractedText={extractedText} currentNoteText={reworded} onAnswer={handleChatAnswer} />}
+            suggestions={
+              isProvider ? (
+                <SuggestionsPanel
+                  noteText={reworded}
+                  originalText={extractedText}
+                  noteVersion={noteVersion}
+                  onApply={handleApplySuggestions}
+                />
+              ) : undefined
+            }
+          />
           <OutputPanel
             status={rewordStatus}
             reworded={reworded}
@@ -407,12 +484,6 @@ function App() {
             onRetry={handleRetryReword}
             onChange={handleOutputChange}
             onDismissDiff={handleDismissDiff}
-            idleMessage={role === 'provider' ? 'Select a patient to review their note.' : undefined}
-            showSignOff={role === 'provider'}
-            signed={signed}
-            signedAt={signedAt}
-            onSign={handleSignNote}
-            onUnsign={handleUnsignNote}
           />
         </div>
       </div>
@@ -424,43 +495,14 @@ function App() {
       <TaskBar
         currentUser={currentUser}
         onHome={handleGoHome}
-        onOpenInstructions={() => setScreen('instructions')}
-        onOpenPatients={() => handleOpenPatients()}
         onOpenTeam={() => setScreen('team')}
         onOpenUploadTool={() => setScreen('upload')}
-        onSignOut={handleSignOut}
+        onOpenAnalyzer={() => setScreen('analyzer')}
+        onSignOut={() => void handleSignOut()}
       />
       <div className="app-body">
         <div className="app-page-content">{pageContent}</div>
-        {/* Always mounted once signed in, even closed — a width transition
-            needs the element in the DOM to animate, and it also means
-            reopening doesn't re-fetch/re-poll from scratch. */}
-        {currentUser && (
-          <div className={chatOpen ? 'chat-drawer chat-drawer-open' : 'chat-drawer'}>
-            <div className="chat-drawer-inner">
-              <button type="button" className="chat-drawer-close" onClick={() => setChatOpen(false)} aria-label="Close chat">
-                <X size={16} />
-              </button>
-              <ChatScreen teamId={currentUser.teamId} currentUserName={currentUser.name} onOpenPatientNote={handleOpenPatientNoteFromChat} />
-            </div>
-          </div>
-        )}
       </div>
-      {/* Fades/scales out while the drawer is open — the drawer's own close
-          button sits in that same bottom-right corner otherwise, and a
-          fixed FAB on top of the drawer would cover its send button. */}
-      {currentUser && (
-        <button
-          type="button"
-          className={chatOpen ? 'chat-fab chat-fab-hidden' : 'chat-fab'}
-          onClick={() => setChatOpen(true)}
-          aria-label="Open chat"
-          aria-hidden={chatOpen}
-          tabIndex={chatOpen ? -1 : 0}
-        >
-          <MessageCircle size={22} />
-        </button>
-      )}
     </div>
   )
 }

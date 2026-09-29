@@ -25,29 +25,18 @@ async function persist(users) {
   await writeFile(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
-// Mirrors the mock roster the app shipped with before accounts moved
-// server-side, so a fresh test run doesn't start with an empty team.
-function seedUsers() {
-  const patelId = crypto.randomUUID();
-  const bellId = crypto.randomUUID();
-  return [
-    { id: patelId, name: 'Dr. Sarah Patel', email: 'sarah.patel@orcarehab.test', role: 'provider', supervisorId: null },
-    { id: bellId, name: 'Dr. Marcus Bell', email: 'marcus.bell@orcarehab.test', role: 'provider', supervisorId: null },
-    { id: crypto.randomUUID(), name: 'Alex Kim', email: 'alex.kim@orcarehab.test', role: 'scribe', supervisorId: patelId },
-    { id: crypto.randomUUID(), name: 'Jordan Lee', email: 'jordan.lee@orcarehab.test', role: 'scribe', supervisorId: patelId },
-    { id: crypto.randomUUID(), name: 'Taylor Nguyen', email: 'taylor.nguyen@orcarehab.test', role: 'scribe', supervisorId: bellId },
-  ];
-}
-
 // Fixed, well-known accounts for the "View as Provider"/"View as Scribe"
 // buttons on the sign-in page (see LoginScreen.tsx) — a presenter clicks
-// straight in without typing an email. Ensured on every load, not just
-// first-run seeding, so an existing users.json from before this feature
-// still picks them up.
+// straight in without going through Google. Local dev only: they bypass
+// the Google Workspace domain lock entirely, so a deployed instance must
+// never create or accept them (see routes/auth.js's POST /demo).
+export const demoLoginEnabled = !isServerless && process.env.NODE_ENV !== 'production';
+
 export const DEMO_PROVIDER_EMAIL = 'demo.provider@orcarehab.demo';
 export const DEMO_SCRIBE_EMAIL = 'demo.scribe@orcarehab.demo';
 
 function withDemoAccounts(users) {
+  if (!demoLoginEnabled) return users;
   const hasProvider = users.some((u) => u.email === DEMO_PROVIDER_EMAIL);
   const hasScribe = users.some((u) => u.email === DEMO_SCRIBE_EMAIL);
   if (hasProvider && hasScribe) return users;
@@ -86,7 +75,7 @@ async function load() {
       users = JSON.parse(raw);
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
-      users = seedUsers();
+      users = [];
     }
     const withDemo = withDemoAccounts(users);
     if (withDemo !== users) await persist(withDemo);

@@ -1,0 +1,62 @@
+/* Marks today's round — on Home's cards and the Patients date header. */
+.round-today-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.round-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.round-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.round-progress-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.round-progress-percent {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.round-progress-bar {
+  display: block;
+  height: 8px;
+  background: var(--code-bg);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.round-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.round-progress-done .round-progress-fill {
+  background: #16a34a;
+}
+
+.round-progress-check {
+  color: #16a34a;
+}

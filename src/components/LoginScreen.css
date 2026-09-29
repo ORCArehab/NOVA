@@ -69,7 +69,8 @@
   padding: var(--gap);
 }
 
-.login-form input {
+.login-form input,
+.login-form select {
   width: 100%;
   box-sizing: border-box;
   background: var(--code-bg);
@@ -80,7 +81,8 @@
   font: inherit;
 }
 
-.login-form input:focus {
+.login-form input:focus,
+.login-form select:focus {
   outline: none;
   border-color: var(--accent-border);
 }
@@ -93,7 +95,33 @@
 
 .login-form .btn {
   width: 100%;
+  box-sizing: border-box;
   text-align: center;
+  font: inherit;
+}
+
+/* "Continue with Google" is a plain link to the OAuth redirect, not a
+   button — a full-page navigation, not a fetch. */
+.login-form a.btn {
+  display: block;
+  text-decoration: none;
+}
+
+.login-form-label {
+  color: var(--text);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.login-signout-link {
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  margin: 12px auto 0;
 }
 
 .login-demo {

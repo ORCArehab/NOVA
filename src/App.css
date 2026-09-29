@@ -25,105 +25,6 @@
   overflow-y: auto;
 }
 
-/* Reachable from every screen via the floating chat button (.chat-fab) —
-   opening it narrows .app-page-content rather than covering it. Always
-   mounted (see App.tsx) so this transition actually has something to
-   animate — max-width is what grows/shrinks, not the fixed-width inner
-   panel, so the reveal reads as a slide/curtain instead of the note text
-   inside reflowing as it resizes. */
-.chat-drawer {
-  flex: 0 0 auto;
-  max-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  border-left: 1px solid transparent;
-  transition:
-    max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 0.28s ease;
-}
-
-.chat-drawer-open {
-  max-width: 380px;
-  border-left-color: var(--panel-border);
-}
-
-.chat-drawer-inner {
-  position: relative;
-  width: 380px;
-  height: 100%;
-  min-height: 0;
-  background: var(--bg);
-  display: flex;
-  flex-direction: column;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.chat-drawer-open .chat-drawer-inner {
-  opacity: 1;
-  transition-delay: 0.08s;
-}
-
-.chat-drawer-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-bg);
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 5;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.chat-drawer-close:hover {
-  background: var(--code-bg);
-  color: var(--text-h);
-}
-
-.chat-fab {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #ffffff;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--shadow);
-  cursor: pointer;
-  z-index: 50;
-  opacity: 1;
-  transform: scale(1);
-  transition:
-    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.2s ease,
-    background-color 0.15s ease;
-}
-
-.chat-fab:hover {
-  background: #7e22ce;
-  transform: scale(1.06);
-}
-
-.chat-fab-hidden {
-  opacity: 0;
-  transform: scale(0.5);
-  pointer-events: none;
-}
-
 .app-container {
   display: flex;
   flex-direction: column;
@@ -160,6 +61,69 @@
   gap: 8px;
 }
 
+/* The workspace's one primary action: Sign Note (provider) or Ready for
+   Provider (scribe). */
+.note-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.note-primary:hover {
+  background: #7e22ce;
+}
+
+.note-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.note-primary:focus-visible,
+.note-text-button:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.note-signed {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.note-signed-label {
+  color: #16a34a;
+  font-weight: 500;
+}
+
+.note-text-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.note-conflict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px var(--gap) 0;
+  padding: 10px 14px;
+  background: rgba(220, 38, 38, 0.07);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: var(--radius);
+  color: var(--text-h);
+  font-size: 13px;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(260px, 0.8fr) minmax(300px, 1fr) 2fr;
@@ -169,14 +133,6 @@
   min-height: 0;
   padding: var(--gap);
   box-sizing: border-box;
-}
-
-/* Providers don't get the Import PDF / Completeness left column — they
-   only review a note the scribe already produced — so the remaining two
-   panels (Suggestions, Output) take the freed-up width instead of leaving
-   a gap. */
-.app-shell-provider {
-  grid-template-columns: minmax(300px, 1fr) 2fr;
 }
 
 .left-column {
@@ -189,6 +145,10 @@
 .chat-panel,
 .suggestions-panel {
   min-height: 0;
+}
+
+.app-topbar {
+  flex-wrap: wrap;
 }
 
 .panel {

@@ -1,0 +1,56 @@
+.assist-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.assist-column > .panel,
+.assist-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.assist-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.assist-body[hidden] {
+  display: none;
+}
+
+.assist-body > .panel {
+  flex: 1 1 auto;
+}
+
+.assist-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-bg);
+}
+
+.assist-tab {
+  flex: 1 1 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+}
+
+.assist-tab-active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.assist-tab:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
+}

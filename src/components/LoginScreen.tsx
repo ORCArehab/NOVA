@@ -1,82 +1,56 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './LoginScreen.css'
-import { ApiError, signIn, signUp } from '../lib/apiClient'
+import { ApiError, demoSignIn, GOOGLE_LOGIN_URL } from '../lib/apiClient'
 import { seedDemoPatientsIfEmpty } from '../lib/mockPatients'
 import { resolveTeamId } from '../lib/team'
-import type { TeamMember } from '../lib/types'
+import type { Role, TeamMember } from '../lib/types'
 
 interface Props {
+  // Why there's no session — shown instead of silently bouncing to Google
+  // again, which would just loop on the same failure (or undo a sign-out).
+  authError: string | null
+  signedOut: boolean
   onLogin: (member: TeamMember) => void
 }
 
-type Mode = 'signIn' | 'signUp'
+// Messages for server/routes/auth.js's ?authError= codes.
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  domain: 'Only @orcarehab.com Google Workspace accounts can use this app.',
+  cancelled: 'Google sign-in was cancelled.',
+  state: 'Your sign-in link expired. Please try again.',
+  not_configured: 'Google sign-in isn’t configured on the server yet (GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET).',
+  failed: 'Google sign-in failed. Please try again.',
+}
 
-// Must match server/userStore.js's DEMO_PROVIDER_EMAIL/DEMO_SCRIBE_EMAIL —
-// fixed accounts ensured to exist on every server load specifically so
-// these two buttons always work without anyone needing to sign up first.
-const DEMO_PROVIDER_EMAIL = 'demo.provider@orcarehab.demo'
-const DEMO_SCRIBE_EMAIL = 'demo.scribe@orcarehab.demo'
+// Local dev only (Vite's dev server) — the server refuses demo sign-in
+// anywhere else regardless (see server/userStore.js's demoLoginEnabled).
+const DEMO_ENABLED = import.meta.env.DEV
 
-// The app's only gate — a real (if still passwordless) account, fetched
-// from the backend (see server/routes/team.js). Signing in loads an
-// existing account by email. Signing up always creates a Provider account
-// (starting a new team) — Scribes don't self-serve sign up; a Provider
-// adds them from the Team page instead, which creates their account too.
-function LoginScreen({ onLogin }: Props) {
-  const [mode, setMode] = useState<Mode>('signIn')
-
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-
+// There's no sign-in or sign-up form — the app is reached through the
+// Google Workspace app launcher and identity comes from Google. This
+// screen is just the hand-off: it goes straight to Google unless there's
+// a reason to stop here (an error, a deliberate sign-out, or local dev
+// where the demo buttons need to be reachable).
+function LoginScreen({ authError, signedOut, onLogin }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function switchMode(next: Mode) {
-    setMode(next)
-    setError(null)
-  }
+  const autoRedirect = !authError && !signedOut && !DEMO_ENABLED
 
-  async function handleSignIn() {
-    const trimmedEmail = email.trim()
-    if (!trimmedEmail) return
+  useEffect(() => {
+    if (autoRedirect) window.location.assign(GOOGLE_LOGIN_URL)
+  }, [autoRedirect])
+
+  // Skips Google entirely — signs into a fixed demo account and makes sure
+  // its team has the curated demo patients (seeded once, not re-seeded on
+  // every click) before handing off. Same shared team either way, since
+  // the Demo Scribe is supervised by the Demo Provider — the two buttons
+  // are two viewpoints on one walk-through-able dataset.
+  async function handleDemoLogin(role: Role) {
     setSubmitting(true)
     setError(null)
     try {
-      const member = await signIn(trimmedEmail)
-      onLogin(member)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to sign in.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function handleSignUp() {
-    const trimmedName = name.trim()
-    const trimmedEmail = email.trim()
-    if (!trimmedName || !trimmedEmail) return
-    setSubmitting(true)
-    setError(null)
-    try {
-      const member = await signUp({ name: trimmedName, email: trimmedEmail, role: 'provider', supervisorId: null })
-      onLogin(member)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to sign up.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  // Skips the form entirely — signs into a fixed demo account and makes
-  // sure its team has the curated demo patients (seeded once, not
-  // re-seeded on every click) before handing off. Same shared team either
-  // way, since the Demo Scribe is supervised by the Demo Provider — the
-  // two buttons are two viewpoints on one walk-through-able dataset.
-  async function handleDemoLogin(demoEmail: string) {
-    setSubmitting(true)
-    setError(null)
-    try {
-      const member = await signIn(demoEmail)
+      const member = await demoSignIn(role)
       seedDemoPatientsIfEmpty(resolveTeamId(member))
       onLogin(member)
     } catch (err) {
@@ -86,93 +60,46 @@ function LoginScreen({ onLogin }: Props) {
     }
   }
 
-  const canSubmitSignIn = email.trim().length > 0
-  const canSubmitSignUp = name.trim().length > 0 && email.trim().length > 0
+  if (autoRedirect) {
+    return (
+      <div className="login-screen">
+        <p className="login-screen-subtitle">Signing you in…</p>
+      </div>
+    )
+  }
+
+  const message = authError ? (AUTH_ERROR_MESSAGES[authError] ?? AUTH_ERROR_MESSAGES.failed) : null
 
   return (
     <div className="login-screen">
       <div className="login-screen-content">
-        <h1>{mode === 'signIn' ? 'Welcome back' : 'Create your account'}</h1>
-        <p className="login-screen-subtitle">
-          {mode === 'signIn'
-            ? 'Sign in to load your team’s patients.'
-            : 'Sign up as a provider to start your team — scribes join by invite from the Team page.'}
-        </p>
-
-        <div className="login-mode-toggle">
-          <button
-            type="button"
-            className={mode === 'signIn' ? 'login-mode-option login-mode-option-active' : 'login-mode-option'}
-            onClick={() => switchMode('signIn')}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            className={mode === 'signUp' ? 'login-mode-option login-mode-option-active' : 'login-mode-option'}
-            onClick={() => switchMode('signUp')}
-          >
-            Sign Up
-          </button>
-        </div>
+        <h1>{signedOut ? 'You’re signed out' : 'Welcome'}</h1>
+        <p className="login-screen-subtitle">Sign in with your Orca Rehab Google Workspace account.</p>
 
         <div className="login-form">
-          {mode === 'signUp' && (
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Full name"
-              autoFocus
-            />
-          )}
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void (mode === 'signIn' ? handleSignIn() : handleSignUp())
-            }}
-            placeholder="Email"
-            autoFocus={mode === 'signIn'}
-          />
-
-          {error && <p className="login-form-error">{error}</p>}
-
-          <button
-            type="button"
-            className="btn"
-            onClick={() => void (mode === 'signIn' ? handleSignIn() : handleSignUp())}
-            disabled={submitting || (mode === 'signIn' ? !canSubmitSignIn : !canSubmitSignUp)}
-          >
-            {submitting ? 'Please wait…' : mode === 'signIn' ? 'Sign In' : 'Sign Up'}
-          </button>
+          {message && <p className="login-form-error">{message}</p>}
+          <a className="btn" href={GOOGLE_LOGIN_URL}>
+            Continue with Google
+          </a>
         </div>
 
-        <div className="login-demo">
-          <div className="login-demo-divider">
-            <span>or explore a demo</span>
+        {DEMO_ENABLED && (
+          <div className="login-demo">
+            <div className="login-demo-divider">
+              <span>or explore a demo (local dev only)</span>
+            </div>
+            <div className="login-demo-actions">
+              <button type="button" className="btn btn-sm" onClick={() => void handleDemoLogin('provider')} disabled={submitting}>
+                View as Provider
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => void handleDemoLogin('scribe')} disabled={submitting}>
+                View as Scribe
+              </button>
+            </div>
+            {error && <p className="login-form-error">{error}</p>}
+            <p className="login-demo-note">Both open the same walk-through patients, viewed from each role.</p>
           </div>
-          <div className="login-demo-actions">
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => void handleDemoLogin(DEMO_PROVIDER_EMAIL)}
-              disabled={submitting}
-            >
-              View as Provider
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => void handleDemoLogin(DEMO_SCRIBE_EMAIL)}
-              disabled={submitting}
-            >
-              View as Scribe
-            </button>
-          </div>
-          <p className="login-demo-note">Both open the same walk-through patients, viewed from each role.</p>
-        </div>
+        )}
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
-import { NotebookPen, Stethoscope, UserPlus } from 'lucide-react'
+import { NotebookPen, Stethoscope } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import './TeamScreen.css'
-import { ApiError, fetchTeamRoster, signUp } from '../lib/apiClient'
+import { ApiError, fetchTeamRoster } from '../lib/apiClient'
 import type { CurrentUser, TeamMember } from '../lib/types'
 
 interface Props {
@@ -10,18 +10,11 @@ interface Props {
 
 // Scoped to the signed-in user's own team — a scribe sees their provider
 // and teammates, a provider sees themselves and their scribes, never the
-// rest of the practice's teams. Inviting always adds a scribe to this same
-// team, since there's no "other team" to assign one to from here. Behind
-// the scenes this is the same account creation as signing up (see
-// LoginScreen) — the invited person could sign in with that email later.
+// rest of the practice's teams. Read-only: team membership is managed in
+// the accounts database, not from inside NOVA.
 function TeamScreen({ currentUser }: Props) {
   const [members, setMembers] = useState<TeamMember[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [formOpen, setFormOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [inviteError, setInviteError] = useState<string | null>(null)
 
   function loadRoster() {
     fetchTeamRoster()
@@ -33,32 +26,6 @@ function TeamScreen({ currentUser }: Props) {
 
   const provider = members.find((m) => m.id === currentUser.teamId)
   const scribes = members.filter((m) => m.role === 'scribe' && m.supervisorId === currentUser.teamId)
-
-  async function handleInvite() {
-    const trimmedName = name.trim()
-    const trimmedEmail = email.trim()
-    if (!trimmedName || !trimmedEmail) return
-    setSubmitting(true)
-    setInviteError(null)
-    try {
-      await signUp({ name: trimmedName, email: trimmedEmail, role: 'scribe', supervisorId: currentUser.teamId })
-      loadRoster()
-      setName('')
-      setEmail('')
-      setFormOpen(false)
-    } catch (err) {
-      setInviteError(err instanceof ApiError ? err.message : 'Failed to add team member.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  function handleCancel() {
-    setFormOpen(false)
-    setName('')
-    setEmail('')
-    setInviteError(null)
-  }
 
   if (loadError) {
     return (
@@ -74,41 +41,7 @@ function TeamScreen({ currentUser }: Props) {
     <div className="team-screen">
       <div className="team-screen-header">
         <h1>Team</h1>
-        <button type="button" className="btn btn-sm" onClick={() => setFormOpen((open) => !open)}>
-          <UserPlus size={15} />
-          Invite team member
-        </button>
       </div>
-
-      {formOpen && (
-        <div className="team-invite-form">
-          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleInvite()
-            }}
-            placeholder="Email"
-          />
-          <p className="team-invite-note">Joins as a scribe on {provider.name}&rsquo;s team.</p>
-          {inviteError && <p className="team-invite-error">{inviteError}</p>}
-          <div className="team-invite-actions">
-            <button type="button" className="btn btn-sm" onClick={handleCancel}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => void handleInvite()}
-              disabled={submitting || !name.trim() || !email.trim()}
-            >
-              {submitting ? 'Sending…' : 'Send Invite'}
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="team-list">
         <div className="team-section-card">

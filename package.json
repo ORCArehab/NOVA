@@ -10,7 +10,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "gen-cert": "mkdir -p certs && openssl req -x509 -newkey rsa:2048 -keyout certs/key.pem -out certs/cert.pem -days 825 -nodes -subj \"/CN=localhost\" -addext \"subjectAltName=DNS:localhost,IP:127.0.0.1\""
+    "gen-cert": "mkdir -p certs && openssl req -x509 -newkey rsa:2048 -keyout certs/key.pem -out certs/cert.pem -days 825 -nodes -subj \"/CN=localhost\" -addext \"subjectAltName=DNS:localhost,IP:127.0.0.1\"",
+    "test": "vitest run"
   },
   "dependencies": {
     "cors": "^2.8.6",
@@ -32,6 +33,7 @@
     "concurrently": "^10.0.3",
     "oxlint": "^1.71.0",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^5.0.2"
   }
 }

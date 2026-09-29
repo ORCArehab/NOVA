@@ -2,6 +2,11 @@ export type NoteType = 'initial' | 'followUp'
 
 export type Role = 'provider' | 'scribe'
 
+export interface Signer {
+  id: string
+  name: string
+}
+
 // Stored locally per patient (see lib/patientStore.ts) — this is a test-run
 // stand-in for real per-patient storage, not a cloud-backed record.
 export interface Patient {
@@ -14,6 +19,9 @@ export interface Patient {
   reworded: string | null
   signed: boolean
   signedAt: number | null
+  // Which provider signed — null when unsigned, and for signatures made
+  // before this was recorded (those only have signedAt).
+  signedBy: Signer | null
   uploaded: boolean
   uploadedAt: number | null
   // Which day's rounds this patient belongs to — a YYYY-MM-DD key (see
@@ -32,18 +40,6 @@ export interface Patient {
   facility: string
 }
 
-// A message on the Team Chat page (see server/messageStore.js, fetched via
-// lib/apiClient.ts) — distinct from ChatHistoryMessage below, which is the
-// AI interview's own message shape and unrelated to this human-to-human
-// channel. Scoped to one team — only people on the same team see it.
-export interface TeamChatMessage {
-  id: string
-  teamId: string
-  author: string
-  text: string
-  createdAt: number
-}
-
 // A registered account, persisted server-side (see server/userStore.js,
 // fetched via lib/apiClient.ts). Providers supervise scribes —
 // supervisorId names which provider a scribe signed up under, and is
@@ -56,10 +52,17 @@ export interface TeamMember {
   supervisorId: string | null
 }
 
+// GET /api/auth/me — who Google says is signed in, plus their account.
+// member is null until they finish first-visit onboarding.
+export interface AuthSession {
+  email: string
+  name: string
+  member: TeamMember | null
+}
+
 // Identity of whoever is currently signed in (see App.tsx's handleLogin) —
-// set the moment sign-in/sign-up succeeds on LoginScreen, and gone the
-// moment they sign out. Not persisted across a page reload — see App.tsx.
-// teamId is derived from the TeamMember at login time (see lib/team.ts's
+// restored from the session cookie on load, and gone the moment they sign
+// out. teamId is derived from the TeamMember at login time (see lib/team.ts's
 // resolveTeamId) and is what scopes every patient list.
 export interface CurrentUser {
   id: string

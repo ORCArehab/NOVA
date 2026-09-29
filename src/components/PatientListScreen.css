@@ -5,7 +5,7 @@
   max-width: 1140px;
   margin: 0 auto;
   height: 100%;
-  padding: 40px var(--gap);
+  padding: 32px var(--gap);
   box-sizing: border-box;
 }
 
@@ -14,14 +14,307 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--gap);
+  gap: 14px;
   height: 100%;
   overflow-y: auto;
+  padding-right: 2px;
 }
 
-/* Clicking a patient with a note in progress previews it here instead of
-   opening the full workspace — stays put while the list scrolls, since it
-   should feel like a fixed reading pane, not part of the list. */
+/* Round header: date, TODAY, progress — deliberately compact so the
+   patient list starts high on the page. */
+
+.patient-round-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 6px;
+}
+
+.patient-round-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.patient-round-title h1 {
+  font-family: var(--heading);
+  font-weight: 500;
+  font-size: 26px;
+  color: var(--text-h);
+  margin: 0;
+}
+
+.patient-list-heading {
+  font-size: 17px;
+  margin: 0;
+}
+
+/* Toolbar: search, filters, add */
+
+.patient-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.patient-toolbar input,
+.patient-toolbar select,
+.patient-add input {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.patient-toolbar input:focus,
+.patient-toolbar select:focus,
+.patient-add input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+.patient-toolbar-search {
+  flex: 1 1 120px;
+}
+
+/* Fixed width — a select otherwise sizes itself to its longest option
+   (a long facility name), which pushes Add Patient onto a second line. */
+.patient-toolbar select {
+  flex: 0 0 130px;
+  width: 130px;
+}
+
+.patient-toolbar-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.patient-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.patient-add-field {
+  flex: 1 1 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.patient-add-date {
+  padding: 7px 0;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.patient-add-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.patient-filter-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.patient-text-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Patient list */
+
+.patient-list-empty {
+  color: var(--text);
+  font-size: 14px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 28px 16px;
+}
+
+.patient-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.patient-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  transition: border-color 0.15s ease;
+}
+
+.patient-row:hover {
+  border-top-color: var(--accent-border);
+  border-right-color: var(--accent-border);
+  border-bottom-color: var(--accent-border);
+}
+
+/* The patient currently open or previewed. */
+.patient-row-active {
+  border-left-color: var(--accent);
+}
+
+.patient-row-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: none;
+  padding: 11px 8px 11px 14px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.patient-row-select:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: -2px;
+  border-radius: var(--radius);
+}
+
+.patient-row-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.patient-row-name {
+  color: var(--text-h);
+  font-size: 15px;
+}
+
+.patient-row-meta {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.patient-stage {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.patient-stage-noNote {
+  color: var(--text);
+  background: var(--code-bg);
+}
+
+.patient-stage-awaitingSignature {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.patient-stage-needsUpload {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.patient-stage-complete {
+  color: #16a34a;
+  background: rgba(74, 222, 128, 0.18);
+}
+
+.patient-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+}
+
+/* Deliberately quiet — selecting the patient is the row's main action. */
+.patient-row-delete {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  opacity: 0.55;
+  cursor: pointer;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease;
+}
+
+.patient-row:hover .patient-row-delete,
+.patient-row-delete:focus-visible {
+  opacity: 1;
+}
+
+.patient-row-delete:hover {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+.patient-row-delete-confirm {
+  background: rgba(248, 113, 113, 0.15);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.4);
+}
+
+.patient-row-delete-confirm:hover {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.patient-list-footnote {
+  margin-top: auto;
+  padding-top: 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Preview pane — stays put while the list scrolls. */
+
 .patient-list-preview {
   flex: 1 1 420px;
   min-width: 0;
@@ -44,24 +337,77 @@
   text-align: center;
 }
 
-.patient-preview-unavailable {
-  margin: auto;
-  color: var(--text);
-  font-size: 14px;
-  text-align: center;
+
+/* Selected patient: identity + status on the left, the one next action
+   on the right. Wraps the action beneath on narrow panels. */
+.patient-preview-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
 }
 
-.patient-preview-header h2 {
+.patient-preview-identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.patient-preview-identity h2 {
   font-family: var(--heading);
   font-weight: 500;
   font-size: 19px;
   color: var(--text-h);
-  margin: 0 0 4px;
+  margin: 0;
 }
 
 .patient-preview-meta {
   color: var(--text);
+  font-size: 13px;
+}
+
+.patient-preview-identity .patient-stage {
+  margin-top: 4px;
+}
+
+.patient-preview-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.patient-preview-primary:hover {
+  background: #7e22ce;
+}
+
+.patient-preview-primary:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.patient-preview-hint {
+  color: var(--text);
   font-size: 12px;
+}
+
+.patient-preview-no-note {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+  color: var(--text-h);
+  font-size: 14px;
 }
 
 .patient-preview-text {
@@ -84,252 +430,20 @@
   gap: 8px;
 }
 
-.patient-list-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+@media (max-width: 860px) {
+  .patient-list-screen {
+    flex-direction: column;
+    align-items: stretch;
+    height: auto;
+    min-height: 100%;
+  }
 
-.patient-list-header h1 {
-  font-family: var(--heading);
-  font-weight: 500;
-  font-size: 28px;
-  color: var(--text-h);
-  margin: 0;
-}
+  .patient-list-main {
+    height: auto;
+    overflow: visible;
+  }
 
-.patient-list-date-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.patient-list-note {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.patient-list-seed-link {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--accent);
-  font: inherit;
-  font-size: 13px;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.patient-list-seed-link:hover {
-  color: var(--text-h);
-}
-
-.patient-list-filter-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--accent-bg);
-  border: 1px solid var(--accent-border);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  color: var(--text-h);
-  font-size: 13px;
-}
-
-.patient-list-new {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.patient-list-new input {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
-  padding: 8px 12px;
-  color: var(--text-h);
-  font: inherit;
-  transition: border-color 0.15s ease;
-}
-
-.patient-list-new input:focus {
-  outline: none;
-  border-color: var(--accent-border);
-}
-
-.patient-list-new-name {
-  flex: 2 1 160px;
-}
-
-.patient-list-new-facility {
-  flex: 2 1 160px;
-}
-
-.patient-list-new-date {
-  flex: 1 1 150px;
-}
-
-.patient-list-empty {
-  color: var(--text);
-  font-size: 14px;
-  text-align: center;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 32px 16px;
-}
-
-.patient-list-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.patient-list-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.patient-list-group-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--heading);
-  font-weight: 500;
-  font-size: 15px;
-  color: var(--text-h);
-  margin: 0;
-}
-
-.patient-list-group-count {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  background: var(--code-bg);
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-
-.patient-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow-y: auto;
-}
-
-.patient-list-item {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-left: 3px solid transparent;
-  border-radius: var(--radius);
-  transition:
-    border-color 0.18s ease,
-    background-color 0.18s ease,
-    transform 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.patient-list-item:hover {
-  border-top-color: var(--accent-border);
-  border-right-color: var(--accent-border);
-  border-bottom-color: var(--accent-border);
-  background: rgba(147, 51, 234, 0.06);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px -12px rgba(17, 24, 39, 0.35);
-}
-
-/* A thin left stripe marks the currently open patient — deliberately no
-   background fill, so it doesn't compete visually with the hover tint or
-   read like a warning/error state. */
-.patient-list-item-active {
-  border-left-color: var(--accent);
-}
-
-.patient-list-item-select {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  text-align: left;
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  padding: 12px 16px;
-}
-
-.patient-list-item-name {
-  color: var(--text-h);
-  font-size: 15px;
-}
-
-.patient-list-item-status {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-}
-
-.patient-list-item-status-signed {
-  color: #16a34a;
-  background: rgba(74, 222, 128, 0.18);
-}
-
-.patient-list-item-status-unsigned {
-  color: var(--text);
-  background: var(--code-bg);
-}
-
-.patient-list-item-meta {
-  color: var(--text);
-  font-size: 12px;
-}
-
-.patient-list-item-note-status-has-note {
-  color: #16a34a;
-  font-weight: 600;
-}
-
-.patient-list-item-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: 12px;
-}
-
-.patient-list-item-delete {
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.patient-list-item-delete:hover {
-  background: rgba(248, 113, 113, 0.15);
-  color: #dc2626;
-  border-color: rgba(220, 38, 38, 0.4);
-}
-
-.patient-list-item-delete-confirm {
-  background: rgba(248, 113, 113, 0.15);
-  color: #dc2626;
-  border: 1px solid rgba(220, 38, 38, 0.4);
-}
-
-.patient-list-item-delete-confirm:hover {
-  background: #dc2626;
-  color: #ffffff;
+  .patient-list-preview {
+    min-height: 280px;
+  }
 }

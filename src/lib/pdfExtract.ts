@@ -3,6 +3,10 @@ import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
+// Re-exported with the worker already configured, for the Document
+// Analyzer (lib/analyzer/ingest.ts).
+export { pdfjsLib }
+
 export class PdfExtractError extends Error {}
 
 export async function extractTextFromPdf(file: File): Promise<string> {

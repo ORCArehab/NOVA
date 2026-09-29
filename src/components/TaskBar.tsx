@@ -1,4 +1,4 @@
-import { BookOpen, ChevronDown, ClipboardList, Home, LogOut, Upload, UserCircle, Users } from 'lucide-react'
+import { ChevronDown, Home, LogOut, ScanSearch, Upload, UserCircle, Users } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import './TaskBar.css'
 import orcaIcon from '../assets/orca-icon.png'
@@ -7,20 +7,25 @@ import type { CurrentUser } from '../lib/types'
 interface Props {
   currentUser: CurrentUser | null
   onHome: () => void
-  onOpenInstructions: () => void
-  onOpenPatients: () => void
   onOpenTeam: () => void
   onOpenUploadTool: () => void
+  onOpenAnalyzer: () => void
   onSignOut: () => void
 }
 
-// Home, Instructions, Team, Patients, and Upload all navigate to a screen.
-// Chat isn't here — it's the floating chat button (App.tsx's chatOpen),
-// reachable from every screen rather than tied to a nav item. The Profile
+// Home, Team, Analyzer, and Upload all navigate to a screen. Patients
+// aren't a nav item: you reach them through a round on Home. The Profile
 // dropdown shows whoever is actually signed in (see LoginScreen/App.tsx's
 // handleLogin) — there's no separate sign-in action here, since signing in
 // is the app's full-page gate, not a menu item.
-function TaskBar({ currentUser, onHome, onOpenInstructions, onOpenPatients, onOpenTeam, onOpenUploadTool, onSignOut }: Props) {
+function TaskBar({
+  currentUser,
+  onHome,
+  onOpenTeam,
+  onOpenUploadTool,
+  onOpenAnalyzer,
+  onSignOut,
+}: Props) {
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
 
@@ -51,17 +56,13 @@ function TaskBar({ currentUser, onHome, onOpenInstructions, onOpenPatients, onOp
           <Home size={17} />
           Home
         </button>
-        <button type="button" className="task-bar-button" onClick={onOpenInstructions}>
-          <BookOpen size={17} />
-          Instructions
-        </button>
         <button type="button" className="task-bar-button" onClick={onOpenTeam}>
           <Users size={17} />
           Team
         </button>
-        <button type="button" className="task-bar-button" onClick={onOpenPatients}>
-          <ClipboardList size={17} />
-          Patients
+        <button type="button" className="task-bar-button" onClick={onOpenAnalyzer}>
+          <ScanSearch size={17} />
+          Analyzer
         </button>
         <button type="button" className="task-bar-button" onClick={onOpenUploadTool}>
           <Upload size={17} />

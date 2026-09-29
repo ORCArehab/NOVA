@@ -1,110 +1,109 @@
+import { FilePen, FilePlus2, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import './PatientListScreen.css'
-import { formatDateLabel, todayDateKey } from '../lib/dateUtils'
+import RoundProgress from './RoundProgress'
+import { formatDate, todayDateKey } from '../lib/dateUtils'
 import { seedMockPatients } from '../lib/mockPatients'
-import { createPatient, deletePatient, listPatients, signPatientNote, unsignPatientNote } from '../lib/patientStore'
-import type { Patient } from '../lib/types'
-
-export type PatientStatusFilter = 'noNote' | 'awaitingSignature'
-
-// Both fields are optional and independent — a rounding-date click sets
-// only `roundingDate` (every patient that day, whatever their status), a
-// stat-tile click sets only `status` (every patient in that state, any
-// day). Nothing currently combines both, but nothing stops a future entry
-// point from doing so.
-export interface PatientFilter {
-  status?: PatientStatusFilter
-  roundingDate?: string
-}
-
-const STATUS_LABELS: Record<PatientStatusFilter, string> = {
-  noNote: 'No note yet',
-  awaitingSignature: 'Awaiting provider signature',
-}
+import {
+  createPatient,
+  deletePatient,
+  listPatients,
+  listRoundingDates,
+  PATIENT_STAGE_LABELS,
+  patientStage,
+  signPatientNote,
+  unsignPatientNote,
+  type PatientStage,
+} from '../lib/patientStore'
+import type { Patient, Signer } from '../lib/types'
 
 interface Props {
   teamId: string
+  // Providers sign; this is who a signature from the preview records.
   canSign: boolean
+  signer: Signer
   activePatientId: string | null
-  initialFilter?: PatientFilter
+  // The round this screen shows — opened from a Home card, the Analyzer's
+  // "View Patients", or Back/Done in the note workspace.
+  roundingDate: string
   onSelect: (patient: Patient) => void
   onDelete: (id: string) => void
 }
 
-function matchesFilter(p: Patient, filter: PatientFilter): boolean {
-  if (filter.roundingDate && p.roundingDate !== filter.roundingDate) return false
-  if (filter.status === 'noNote' && p.reworded) return false
-  if (filter.status === 'awaitingSignature' && !(p.reworded && !p.signed)) return false
-  return true
+const STAGES = Object.keys(PATIENT_STAGE_LABELS) as PatientStage[]
+
+// Mock-data seeding is developer tooling — hidden outside Vite's dev server.
+const DEV_TOOLS = import.meta.env.DEV
+
+function normalize(text: string): string {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim()
 }
 
-function describeFilter(filter: PatientFilter): string {
-  const parts: string[] = []
-  if (filter.roundingDate) parts.push(formatDateLabel(filter.roundingDate))
-  if (filter.status) parts.push(STATUS_LABELS[filter.status])
-  return parts.join(' · ')
-}
-
-function PatientListScreen({ teamId, canSign, activePatientId, initialFilter = {}, onSelect, onDelete }: Props) {
+// "Which patient needs my attention?" — a round's progress up top, then
+// the patient list as the main content, with the selected patient's note
+// previewed on the right.
+function PatientListScreen({ teamId, canSign, signer, activePatientId, roundingDate: roundDate, onSelect, onDelete }: Props) {
   const [patients, setPatients] = useState<Patient[]>(() => listPatients(teamId))
-  const [filter, setFilter] = useState<PatientFilter>(initialFilter)
+
+  const [search, setSearch] = useState('')
+  const [facilityFilter, setFacilityFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<PatientStage | ''>('')
+
+  const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newFacility, setNewFacility] = useState('')
-  const [newRoundingDate, setNewRoundingDate] = useState(() => todayDateKey())
+
   // Armed by a first click on Delete; a second click on the same row
   // actually deletes. Only one row can be armed at a time.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  // Clicking a patient who already has a note in progress shows it here
-  // instead of jumping into the full workspace — picking another patient
-  // just replaces this. A patient with no note yet still opens the full
-  // workspace directly, since there's nothing to preview. Initialized from
-  // activePatientId so Back/Done from the full workspace lands back on a
-  // preview of the same patient, rather than an empty pane — but only if
-  // they actually have a note; a "no note yet" patient has nothing to show.
-  const [previewPatient, setPreviewPatient] = useState<Patient | null>(() => {
-    if (!activePatientId) return null
-    const active = patients.find((p) => p.id === activePatientId)
-    return active?.reworded ? active : null
-  })
+  // Clicking a patient previews them on the right; Start Note / Edit Note
+  // there is what opens the full workspace. Starts on the patient that was
+  // open, so Back/Done from the workspace lands on the same preview. Held
+  // as an id and read from the live list, so Sign/Unsign updates the
+  // preview's status right away.
+  const [previewId, setPreviewId] = useState<string | null>(activePatientId)
+  const previewPatient = patients.find((p) => p.id === previewId) ?? null
 
-  const isFiltered = Boolean(filter.status || filter.roundingDate)
-  const visiblePatients = patients.filter((p) => matchesFilter(p, filter))
-  // A rounding-date click (not a status click) gets its own header treatment
-  // — the date as the title, plus a home-page-style stat row scoped to just
-  // that day's patients — rather than the generic "Patients" heading.
-  const isDateView = Boolean(filter.roundingDate) && !filter.status
-  const dateStats = {
-    total: visiblePatients.length,
-    noNoteYet: visiblePatients.filter((p) => !p.reworded).length,
-    awaitingSignature: visiblePatients.filter((p) => p.reworded && !p.signed).length,
-    needsUpload: visiblePatients.filter((p) => p.signed && !p.uploaded).length,
+  const scoped = patients.filter((p) => p.roundingDate === roundDate)
+  const facilities = [...new Set(scoped.map((p) => p.facility))].sort((a, b) => a.localeCompare(b))
+  const allFacilities = [...new Set(patients.map((p) => p.facility))].sort((a, b) => a.localeCompare(b))
+
+  const query = normalize(search)
+  const visiblePatients = scoped.filter(
+    (p) =>
+      (!query || normalize(p.name).includes(query)) &&
+      (!facilityFilter || p.facility === facilityFilter) &&
+      (!statusFilter || patientStage(p) === statusFilter),
+  )
+  const filterParts = [
+    statusFilter && PATIENT_STAGE_LABELS[statusFilter],
+    facilityFilter,
+    query && `“${search.trim()}”`,
+  ].filter(Boolean)
+  const isFiltered = filterParts.length > 0
+
+  // Same source as Home's cards, so the two always agree.
+  const round = listRoundingDates(teamId).find((r) => r.date === roundDate) ?? { date: roundDate, total: 0, complete: 0 }
+
+  function clearFilters() {
+    setSearch('')
+    setFacilityFilter('')
+    setStatusFilter('')
   }
 
-  // Every other view (the full list, or a status-only filter) groups by
-  // rounding date instead of one flat list — a provider scanning "Awaiting
-  // signature" still wants to know which day each patient belongs to.
-  // Patients within a date keep the list's existing most-recently-updated
-  // order, since visiblePatients is already sorted that way.
-  const groupsByDate = isDateView
-    ? []
-    : Array.from(
-        visiblePatients.reduce((groups, p) => {
-          const group = groups.get(p.roundingDate)
-          if (group) group.push(p)
-          else groups.set(p.roundingDate, [p])
-          return groups
-        }, new Map<string, Patient[]>()),
-      ).sort(([a], [b]) => b.localeCompare(a))
+  function closeAddForm() {
+    setAddOpen(false)
+    setNewName('')
+    setNewFacility('')
+  }
 
   function handleCreate() {
     const name = newName.trim()
     const facility = newFacility.trim()
     if (!name || !facility) return
-    createPatient(name, teamId, facility, newRoundingDate || todayDateKey())
+    createPatient(name, teamId, facility, roundDate)
     setPatients(listPatients(teamId))
-    setNewName('')
-    setNewFacility('')
-    setNewRoundingDate(todayDateKey())
+    closeAddForm()
   }
 
   function handleDeleteClick(id: string) {
@@ -115,7 +114,7 @@ function PatientListScreen({ teamId, canSign, activePatientId, initialFilter = {
     deletePatient(id)
     setPatients(listPatients(teamId))
     setConfirmDeleteId(null)
-    if (previewPatient?.id === id) setPreviewPatient(null)
+    if (previewId === id) setPreviewId(null)
     onDelete(id)
   }
 
@@ -124,229 +123,241 @@ function PatientListScreen({ teamId, canSign, activePatientId, initialFilter = {
     setPatients(listPatients(teamId))
   }
 
-  // A provider has nothing to do in the full workspace for a patient with
-  // no note yet — no note to review, nothing to sign — so they get the
-  // preview's "Not available" state instead of an empty editor. A scribe
-  // still opens the full workspace directly, since starting the note is
-  // exactly what they'd go there to do.
-  function handleRowClick(p: Patient) {
-    if (p.reworded || canSign) {
-      setPreviewPatient(p)
-    } else {
-      onSelect(p)
-    }
-  }
-
   function handleSign() {
-    if (!previewPatient) return
-    signPatientNote(previewPatient.id)
-    setPreviewPatient({ ...previewPatient, signed: true, signedAt: Date.now() })
+    if (!previewPatient || !canSign) return
+    signPatientNote(previewPatient.id, signer)
     setPatients(listPatients(teamId))
   }
 
   function handleUnsign() {
-    if (!previewPatient) return
+    if (!previewPatient || !canSign) return
     unsignPatientNote(previewPatient.id)
-    setPreviewPatient({ ...previewPatient, signed: false, signedAt: null })
     setPatients(listPatients(teamId))
   }
 
   function renderPatientRow(p: Patient) {
     const isActive = p.id === activePatientId || p.id === previewPatient?.id
+    const stage = patientStage(p)
+    const confirming = confirmDeleteId === p.id
     return (
-      <li key={p.id} className={isActive ? 'patient-list-item patient-list-item-active' : 'patient-list-item'}>
-        <button type="button" className="patient-list-item-select" onClick={() => handleRowClick(p)}>
-          <span className="patient-list-item-name">{p.name}</span>
-          <span className="patient-list-item-meta">
-            <span
-              className={
-                p.reworded ? 'patient-list-item-note-status patient-list-item-note-status-has-note' : 'patient-list-item-note-status'
-              }
-            >
-              {p.reworded ? 'Note in progress' : 'No note yet'}
-            </span>{' '}
-            · {formatDateLabel(p.roundingDate)} · {p.facility} · Updated {new Date(p.updatedAt).toLocaleString()}
+      <li key={p.id} className={isActive ? 'patient-row patient-row-active' : 'patient-row'}>
+        <button type="button" className="patient-row-select" onClick={() => setPreviewId(p.id)}>
+          <span className="patient-row-text">
+            <span className="patient-row-name">{p.name}</span>
+            <span className="patient-row-meta">{p.facility}</span>
           </span>
+          <span className={`patient-stage patient-stage-${stage}`}>{PATIENT_STAGE_LABELS[stage]}</span>
         </button>
-        <div className="patient-list-item-actions">
-          {p.reworded && (
-            <span
-              className={
-                p.signed ? 'patient-list-item-status patient-list-item-status-signed' : 'patient-list-item-status patient-list-item-status-unsigned'
-              }
-            >
-              {p.signed ? 'Signed' : 'Unsigned'}
-            </span>
-          )}
-          {confirmDeleteId === p.id ? (
+        <div className="patient-row-actions">
+          {confirming ? (
             <>
               <button type="button" className="btn btn-sm" onClick={() => setConfirmDeleteId(null)}>
                 Cancel
               </button>
-              <button type="button" className="btn btn-sm patient-list-item-delete-confirm" onClick={() => handleDeleteClick(p.id)}>
-                Confirm delete
+              <button type="button" className="btn btn-sm patient-row-delete-confirm" onClick={() => handleDeleteClick(p.id)}>
+                Delete
               </button>
             </>
           ) : (
-            <button type="button" className="btn btn-sm patient-list-item-delete" onClick={() => handleDeleteClick(p.id)}>
-              Delete
+            <button
+              type="button"
+              className="patient-row-delete"
+              onClick={() => handleDeleteClick(p.id)}
+              aria-label={`Delete ${p.name}`}
+              title="Delete patient"
+            >
+              <Trash2 size={15} />
             </button>
           )}
         </div>
-        {p.uploaded && (
-          <div className="uploaded-fog">
-            <span className="uploaded-fog-label">Uploaded</span>
-          </div>
-        )}
       </li>
     )
   }
 
+  // The selected patient: who they are, where their note stands, and the
+  // one thing to do next. Start/Edit Note open the existing note
+  // workspace (App's handleSelectPatient) — the preview itself is
+  // read-only.
+  function renderPreview(patient: Patient) {
+    const stage = patientStage(patient)
+    const hasNote = Boolean(patient.reworded)
+    const signed = stage === 'needsUpload' || stage === 'complete'
+
+    return (
+      <>
+        <div className="patient-preview-header">
+          <div className="patient-preview-identity">
+            <h2>{patient.name}</h2>
+            <span className="patient-preview-meta">{patient.facility}</span>
+            <span className={`patient-stage patient-stage-${stage}`}>{PATIENT_STAGE_LABELS[stage]}</span>
+          </div>
+          {hasNote ? (
+            <button type="button" className="btn patient-preview-primary" onClick={() => onSelect(patient)}>
+              <FilePen size={16} />
+              Edit Note
+            </button>
+          ) : (
+            <button type="button" className="btn patient-preview-primary" onClick={() => onSelect(patient)}>
+              <FilePlus2 size={16} />
+              Start Note
+            </button>
+          )}
+        </div>
+
+        {hasNote ? (
+          <>
+            {/* Existing workspace behavior: any edit to a signed note clears the signature. */}
+            {signed && <p className="patient-preview-hint">Editing this note will remove the provider signature.</p>}
+            <div className="patient-preview-text" aria-label={`Note preview for ${patient.name}`}>
+              {patient.reworded}
+            </div>
+            {canSign && (
+              <div className="patient-preview-actions">
+                {patient.signed ? (
+                  <button type="button" className="btn btn-sm" onClick={handleUnsign}>
+                    Unsign
+                  </button>
+                ) : (
+                  <button type="button" className="btn" onClick={handleSign}>
+                    Sign Note
+                  </button>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="patient-preview-no-note">
+            <p>No note has been started for this patient.</p>
+            <p className="patient-preview-hint">Start a note when you’re ready to begin.</p>
+          </div>
+        )}
+      </>
+    )
+  }
+
+  const emptyMessage = isFiltered ? 'No patients match these filters.' : 'No patients on this round yet.'
+
   return (
     <div className="patient-list-screen">
       <div className="patient-list-main">
-        <div className="patient-list-header">
-          <h1>{isDateView ? formatDateLabel(filter.roundingDate ?? '') : 'Patients'}</h1>
+        <div className="patient-round-header">
+          <div className="patient-round-title">
+            <h1>{formatDate(round.date)}</h1>
+            {round.date === todayDateKey() && <span className="round-today-badge">Today</span>}
+          </div>
+          <RoundProgress round={round} />
         </div>
 
-        {isDateView && (
-          <div className="patient-list-date-stats">
-            <div className="stat-tile">
-              <span className="stat-tile-value">{dateStats.total}</span>
-              <span className="stat-tile-label">Total patients</span>
-            </div>
-            <div className="stat-tile">
-              <span className="stat-tile-value">{dateStats.noNoteYet}</span>
-              <span className="stat-tile-label">No note yet</span>
-            </div>
-            <div className="stat-tile stat-tile-warning">
-              <span className="stat-tile-value">{dateStats.awaitingSignature}</span>
-              <span className="stat-tile-label">Awaiting signature</span>
-            </div>
-            <div className="stat-tile stat-tile-warning">
-              <span className="stat-tile-value">{dateStats.needsUpload}</span>
-              <span className="stat-tile-label">Need to be uploaded</span>
-            </div>
-          </div>
-        )}
+        <h2 className="patient-list-heading">Patients</h2>
 
-        <p className="patient-list-note">
-          Stored locally on this device for this test run — not yet synced to any shared or cloud storage.{' '}
-          <button type="button" className="patient-list-seed-link" onClick={handleSeedMockPatients}>
-            Add 15 mock patients
-          </button>
-        </p>
-
-        {isFiltered && (
-          <div className="patient-list-filter-banner">
-            <span>
-              {isDateView ? `${visiblePatients.length} patients` : `Showing: ${describeFilter(filter)} (${visiblePatients.length})`}
-            </span>
-            <button type="button" className="patient-list-seed-link" onClick={() => setFilter({})}>
-              Show all patients
-            </button>
-          </div>
-        )}
-
-        <div className="patient-list-new">
+        <div className="patient-toolbar">
           <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreate()
-            }}
-            placeholder="Patient name"
-            className="patient-list-new-name"
+            type="search"
+            className="patient-toolbar-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search patients…"
+            aria-label="Search patients by name"
           />
-          <input
-            type="text"
-            value={newFacility}
-            onChange={(e) => setNewFacility(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreate()
-            }}
-            placeholder="Facility"
-            className="patient-list-new-facility"
-          />
-          <input
-            type="date"
-            value={newRoundingDate}
-            onChange={(e) => setNewRoundingDate(e.target.value)}
-            className="patient-list-new-date"
-          />
-          <button type="button" className="btn" onClick={handleCreate} disabled={!newName.trim() || !newFacility.trim()}>
+          {facilities.length > 1 && (
+            <select value={facilityFilter} onChange={(e) => setFacilityFilter(e.target.value)} aria-label="Filter by facility">
+              <option value="">Facility</option>
+              {facilities.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          )}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as PatientStage | '')}
+            aria-label="Filter by status"
+          >
+            <option value="">Status</option>
+            {STAGES.map((s) => (
+              <option key={s} value={s}>
+                {PATIENT_STAGE_LABELS[s]}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn btn-sm patient-toolbar-add" onClick={() => (addOpen ? closeAddForm() : setAddOpen(true))}>
+            <Plus size={15} />
             Add Patient
           </button>
         </div>
 
-        {visiblePatients.length === 0 ? (
-          <p className="patient-list-empty">
-            {isFiltered ? `No patients matching "${describeFilter(filter)}".` : 'No patients yet — add one above to get started.'}
-          </p>
-        ) : isDateView ? (
-          <ul className="patient-list">{visiblePatients.map(renderPatientRow)}</ul>
-        ) : (
-          <div className="patient-list-groups">
-            {groupsByDate.map(([date, group]) => (
-              <div key={date} className="patient-list-group">
-                <h2 className="patient-list-group-heading">
-                  {formatDateLabel(date)}
-                  <span className="patient-list-group-count">{group.length}</span>
-                </h2>
-                <ul className="patient-list">{group.map(renderPatientRow)}</ul>
-              </div>
-            ))}
+        {addOpen && (
+          <form
+            className="patient-add"
+            onSubmit={(e) => {
+              e.preventDefault()
+              handleCreate()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') closeAddForm()
+            }}
+          >
+            <label className="patient-add-field">
+              <span>Patient name</span>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus />
+            </label>
+            <label className="patient-add-field">
+              <span>Facility</span>
+              <input value={newFacility} onChange={(e) => setNewFacility(e.target.value)} list="patient-add-facilities" />
+              <datalist id="patient-add-facilities">
+                {allFacilities.map((f) => (
+                  <option key={f} value={f} />
+                ))}
+              </datalist>
+            </label>
+            <div className="patient-add-field">
+              <span>Rounding date</span>
+              <span className="patient-add-date">{formatDate(roundDate)}</span>
+            </div>
+            <div className="patient-add-actions">
+              <button type="button" className="btn btn-sm" onClick={closeAddForm}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-sm" disabled={!newName.trim() || !newFacility.trim()}>
+                Add Patient
+              </button>
+            </div>
+          </form>
+        )}
+
+        {isFiltered && (
+          <div className="patient-filter-indicator">
+            <span>
+              Showing: {filterParts.join(' · ')} ({visiblePatients.length})
+            </span>
+            <button type="button" className="patient-text-button" onClick={clearFilters}>
+              Clear filters
+            </button>
           </div>
         )}
+
+        {visiblePatients.length === 0 ? (
+          <p className="patient-list-empty">{emptyMessage}</p>
+        ) : (
+          <ul className="patient-list">{visiblePatients.map(renderPatientRow)}</ul>
+        )}
+
+        <p className="patient-list-footnote">
+          Patients are stored on this device only — not yet synced to shared storage.
+          {DEV_TOOLS && (
+            <>
+              {' '}
+              <button type="button" className="patient-text-button" onClick={handleSeedMockPatients}>
+                Add 15 mock patients (dev)
+              </button>
+            </>
+          )}
+        </p>
       </div>
 
       <div className="patient-list-preview">
-        {previewPatient ? (
-          <>
-            <div className="patient-preview-header">
-              <h2>{previewPatient.name}</h2>
-              <span className="patient-preview-meta">
-                {previewPatient.facility} · {formatDateLabel(previewPatient.roundingDate)}
-              </span>
-            </div>
-            {previewPatient.reworded ? (
-              <>
-                <span
-                  className={
-                    previewPatient.signed
-                      ? 'patient-list-item-status patient-list-item-status-signed'
-                      : 'patient-list-item-status patient-list-item-status-unsigned'
-                  }
-                >
-                  {previewPatient.signed
-                    ? `Signed${previewPatient.signedAt ? ` on ${new Date(previewPatient.signedAt).toLocaleString()}` : ''}`
-                    : 'Unsigned'}
-                </span>
-                <div className="patient-preview-text">{previewPatient.reworded}</div>
-                <div className="patient-preview-actions">
-                  <button type="button" className="btn btn-sm" onClick={() => onSelect(previewPatient)}>
-                    Open full note
-                  </button>
-                  {canSign &&
-                    (previewPatient.signed ? (
-                      <button type="button" className="btn btn-sm" onClick={handleUnsign}>
-                        Unsign
-                      </button>
-                    ) : (
-                      <button type="button" className="btn" onClick={handleSign}>
-                        Sign Note
-                      </button>
-                    ))}
-                </div>
-              </>
-            ) : (
-              <p className="patient-preview-unavailable">Not available — no note has been started for this patient yet.</p>
-            )}
-          </>
-        ) : (
-          <p className="patient-preview-empty">Select a patient with a note in progress to preview it here.</p>
-        )}
+        {previewPatient ? renderPreview(previewPatient) : <p className="patient-preview-empty">Select a patient to view their note.</p>}
       </div>
     </div>
   )

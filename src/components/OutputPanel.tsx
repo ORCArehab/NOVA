@@ -12,12 +12,6 @@ interface Props {
   onRetry: () => void
   onChange: (text: string) => void
   onDismissDiff: () => void
-  idleMessage?: string
-  showSignOff?: boolean
-  signed?: boolean
-  signedAt?: number | null
-  onSign?: () => void
-  onUnsign?: () => void
 }
 
 interface DiffEditableProps {
@@ -76,12 +70,6 @@ function OutputPanel({
   onRetry,
   onChange,
   onDismissDiff,
-  idleMessage,
-  showSignOff,
-  signed,
-  signedAt,
-  onSign,
-  onUnsign,
 }: Props) {
   const [copied, setCopied] = useState(false)
 
@@ -106,7 +94,7 @@ function OutputPanel({
       </div>
       <div className="panel-content output-content">
         {status === 'idle' && (
-          <p className="output-placeholder">{idleMessage ?? 'Import a PDF to see the reworded note here.'}</p>
+          <p className="output-placeholder">Import a PDF to see the reworded note here.</p>
         )}
         {status === 'loading' && <p className="output-placeholder">Rewording…</p>}
         {status === 'error' && (
@@ -137,27 +125,6 @@ function OutputPanel({
           />
         )}
       </div>
-      {showSignOff && status === 'done' && reworded !== null && (
-        <div className="output-signoff">
-          {signed ? (
-            <>
-              <span className="output-signoff-status output-signoff-status-signed">
-                Signed{signedAt ? ` on ${new Date(signedAt).toLocaleString()}` : ''}
-              </span>
-              <button type="button" className="btn btn-sm" onClick={onUnsign}>
-                Unsign
-              </button>
-            </>
-          ) : (
-            <>
-              <span className="output-signoff-status output-signoff-status-unsigned">Not yet signed</span>
-              <button type="button" className="btn" onClick={onSign}>
-                Sign Note
-              </button>
-            </>
-          )}
-        </div>
-      )}
     </section>
   )
 }

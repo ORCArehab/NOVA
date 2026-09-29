@@ -13,6 +13,9 @@ never as invented clinical fact.
 1. `npm install`
 2. Copy `.env.example` to `.env` and fill in `OPENAI_API_KEY` (get one at
    [platform.openai.com/api-keys](https://platform.openai.com/api-keys)).
+   For Google sign-in locally, also fill in `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET` (see [Google Workspace sign-in](#google-workspace-sign-in)
+   below) — without them, the local-dev-only demo buttons still work.
 3. `npm run gen-cert` — generates a self-signed TLS cert into `certs/`
    (gitignored) so both dev servers can run over HTTPS. Your browser will
    warn that the cert isn't trusted; that's expected for a local dev cert.
@@ -67,14 +70,87 @@ never as invented clinical fact.
 - The API server writes an access-only audit trail to `server/logs/audit.log`
   (`server/auditLog.js`) — timestamp, method, path, status, user, IP. The
   audit log never contains note text or model output, only who accessed the
-  endpoint and when. There's no request-level auth in front of the API right
-  now — accounts exist (`server/routes/team.js`, `server/userStore.js`: sign
-  up/in with name, email, and role) but nothing yet ties an API request to a
-  signed-in identity, so this isn't a real access boundary. See the privacy/
-  compliance note below for what that still needs before this handles real
-  PHI.
+  endpoint and when. Every `/api` route except `/api/auth` requires a
+  signed-in Google Workspace session — see below.
 - Both dev servers run over HTTPS using a locally generated self-signed cert
   (`certs/`, gitignored — regenerate with `npm run gen-cert`).
+
+## Document Analyzer
+
+The **Analyzer** screen turns a facility billing or census sheet, with that
+day's patients highlighted (usually highlighter on paper, then scanned in
+color), into patients on a rounding date. It never creates a patient on
+its own: the user reviews, corrects and confirms every import.
+
+The pipeline is split so that deterministic image processing decides
+*which* rows are highlighted, and AI only reads *what those rows say*:
+
+| Stage | Where | Module |
+|---|---|---|
+| Validate + open the PDF (type, size ≤ 25 MB, ≤ 40 pages, password, corruption) | Browser | `src/lib/analyzer/ingest.ts` |
+| Render each page (~150 DPI), find highlighter-colored bands by pixel color | Browser | `src/lib/analyzer/highlights.ts` |
+| Crop each band full-width, plus a small header strip from page 1 | Browser | `src/lib/analyzer/ingest.ts` |
+| Read names / facility / date from the crops (OpenAI vision, JSON output) | Server | `server/routes/analyzeDocument.js`, `server/documentReader.js`, `server/analyzerSchema.js` |
+| Grade confidence (highlight shape, legibility, name plausibility) | Browser | `src/lib/analyzer/validate.ts` |
+| Duplicate check (name + facility + rounding date, per team) | Browser | `src/lib/analyzer/duplicates.ts` |
+| Review, then import through the normal `createPatient` | Browser | `src/components/AnalyzerReview.tsx`, `src/lib/analyzer/importPatients.ts` |
+
+`src/lib/analyzer/analyze.ts` chains the stages together.
+
+Data handling: the PDF and its rendered pages never leave the browser and
+are never stored. Only the cropped highlighted rows and the header strip
+are sent to the server, which passes them to OpenAI and keeps nothing. The
+header strip stops above the first highlighted row, but on a sheet with a
+very short title block it can still include a table row or two. Failures
+log only an error status and code, never images or model output. The same
+OpenAI BAA / zero-retention caveat as the rest of the app applies (see the
+compliance note below). `OPENAI_VISION_MODEL` can override the model if
+`OPENAI_MODEL` is ever set to one without image input.
+
+Not supported yet: handwritten names, and sheets scanned in black-and-white
+(the highlighter disappears).
+
+Tests: `npm test` (vitest), which covers highlight detection, row
+validation, duplicate detection, import and the server's input/output
+validation.
+
+## Google Workspace sign-in
+
+There's no sign-in or sign-up form. The app is reached from the Google
+Workspace app launcher, and only verified Google Workspace accounts on
+`ALLOWED_EMAIL_DOMAIN` (default `orcarehab.com`) get in
+(`server/routes/auth.js`). Anyone already signed into Workspace goes
+straight through without seeing a Google screen. A successful sign-in sets
+a signed, HttpOnly session cookie (`server/session.js`, 12 hours) that every
+other `/api` route requires.
+
+On someone's first visit they pick a role once: provider (starts their own
+team), or scribe (picks their supervising provider). Someone who already
+has an account in the accounts store skips the role question. The Team
+page is read-only; membership is managed in the accounts database, not
+in NOVA.
+
+Setup (one time):
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), under a
+   project owned by the Workspace org: **APIs & Services → OAuth consent
+   screen**, choose **Internal** (only your Workspace users can sign in, and
+   they aren't shown a consent prompt).
+2. **Credentials → Create credentials → OAuth client ID**, type **Web
+   application**. Add these **Authorized redirect URIs**:
+   - `https://<your-deployed-domain>/api/auth/google/callback`
+   - `http://localhost:5173/api/auth/google/callback` for local dev (use
+     `https://` if you ran `npm run gen-cert`)
+3. Put the client ID and secret in `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET`.
+4. To add it to the app launcher, go to Google Admin console → **Apps → Web
+   and mobile apps → Add app → Add custom web app** (or a shared bookmark)
+   and point it at the deployed URL.
+
+The **View as Provider / View as Scribe** demo buttons bypass Google, so they
+only exist in local dev. The frontend shows them only under Vite's dev
+server, and the server refuses `/api/auth/demo` on Vercel or when
+`NODE_ENV=production`.
 
 ## Deploying to Vercel
 
@@ -95,12 +171,11 @@ CLI), then set these under Project Settings → Environment Variables:
 
 - `OPENAI_API_KEY` — required, the app will fail on cold start without it.
 - `OPENAI_MODEL` — optional, defaults to `gpt-4o-mini`.
-
-There's currently no request-level auth in front of a deployed instance —
-sign up/in (`/api/team`) exists, but anyone with the URL can call any API
-route directly regardless of it. Don't put this in front of real patient
-data (or leave it publicly reachable at all) until that's closed; see the
-privacy/compliance note below.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — required for sign-in (see
+  [Google Workspace sign-in](#google-workspace-sign-in)).
+- `SESSION_SECRET` — required, a long random string
+  (`openssl rand -hex 32`); the app fails on cold start without it.
+- `ALLOWED_EMAIL_DOMAIN` — optional, defaults to `orcarehab.com`.
 
 Note that `certs/` (the local self-signed TLS cert) is irrelevant on
 Vercel — Vercel terminates HTTPS itself, so `api/index.js` never touches
@@ -110,16 +185,18 @@ instead of a local file when deployed (`server/auditLog.js` detects the
 project's Function Logs, since a serverless function's local filesystem
 isn't persistent between invocations.
 
-**Accounts and Team Chat are not reliably durable on Vercel yet.**
-`server/userStore.js` and `server/messageStore.js` are JSON-file "databases"
+**Accounts are not reliably durable on Vercel yet.**
+`server/userStore.js` is a JSON-file "database"
 — fine for the local long-running dev server, but Vercel's filesystem is
-read-only outside `/tmp`. Both detect `VERCEL` and redirect there instead of
+read-only outside `/tmp`. It detects `VERCEL` and redirects there instead of
 crashing, but `/tmp` isn't guaranteed to persist or be shared across
-invocations, so accounts and chat messages can still reset unpredictably
+invocations, so accounts can still reset unpredictably
 between requests on a real deployment (a cold instance won't remember
-someone who signed up a minute ago). This is a stopgap against a hard
+someone who onboarded a minute ago, so they'd be asked their role again).
+Sign-in itself survives this, since the session lives in a signed cookie,
+not on the server. This is a stopgap against a hard
 500, not a fix — a real deployment needs an actual persistent store (Vercel
-KV/Postgres, or another hosted DB) wired into those two files instead.
+KV/Postgres, or another hosted DB) wired into that file instead.
 
 ## Privacy / compliance note
 
@@ -134,26 +211,41 @@ with real patient data in any regulated context, you still need, at minimum:
 - **A real TLS certificate** for any non-localhost deployment — the
   self-signed cert here is for local development only and will not be
   trusted by browsers or valid for a real domain.
-- **Real authentication, not just accounts** — sign up/in
-  (`server/routes/team.js`) collects name, email, and role and persists them
-  server-side, but it's passwordless (email alone is the identifier) and
-  nothing enforces it at the API layer: no session token, no request-level
-  check tying a `/api/*` call to whoever signed in, no lockout after failed
-  attempts. Anyone who can reach the API can call it directly regardless of
-  what the frontend shows as "signed in."
+- **Server-side patient storage** — sign-in is enforced on every API route
+  (Google Workspace SSO, domain-locked), but patients and their notes live
+  in the browser's `localStorage` (`src/lib/patientStore.ts`), not on the
+  server. Until they move to a shared database:
+  - a scribe and a provider only share a note if they use the same browser
+    on the same computer;
+  - team access and provider-only signing are checked in the app's code
+    (`App.tsx` `handleSignNote`, `PatientListScreen` `handleSign`), but
+    there's no server to enforce them;
+  - editing conflicts are only caught between tabs and windows of the same
+    browser (`saveNote` refuses to overwrite a note that changed since it
+    was opened). Across devices, a shared store needs the same version
+    check.
 - **Administrative safeguards** required by the HIPAA Security Rule that are
   entirely outside of code: a documented risk analysis, workforce training,
   breach notification procedures, and a retention/disposal policy.
 
 The app itself never logs extracted text or model output (only the access
-metadata described above). The note text, chat history, and suggestions are
-autosaved to the browser's `sessionStorage` so a refresh doesn't lose your
-work — this never leaves the browser, is cleared when the tab closes, and
-isn't sent to the server, but it does mean the current note sits in the
-browser's local storage for the duration of the tab being open. Nothing is
-persisted anywhere beyond that.
+metadata described above). Notes autosave to the patient's record in the
+browser's `localStorage` as you work. The AI interview and suggestions for
+the open note are cached in `sessionStorage` (cleared when the tab closes).
+None of this is sent to the server except the text passed to the AI routes.
+
+## Note workflow
+
+Scribes and providers use the same note workspace on the same note: import
+a PDF, run the AI interview, check completeness, edit the reworded output.
+Roles differ only in capabilities. Providers also get AI Suggestions (a tab
+beside the interview) and sign. A scribe finishes with **Ready for
+Provider**. There's no separate state for that: an unsigned note is
+"Awaiting signature". A provider can start and sign a note with no scribe
+involved. A signature records who signed and when. Any later edit, by
+anyone, clears it, and uploading doesn't lock the note.
 
 ## Scope
 
 Not supported in this version: scanned/image PDFs (no OCR), streaming
-responses, persistence, multi-user accounts.
+responses, server-side persistence of patients.

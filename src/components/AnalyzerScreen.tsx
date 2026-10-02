@@ -1,12 +1,14 @@
-import { CircleCheck, FileUp, Loader2 } from 'lucide-react'
+import { CircleCheck, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import './AnalyzerScreen.css'
+import AnalyzerDropzone from './AnalyzerDropzone'
 import AnalyzerReview from './AnalyzerReview'
 import RoundingDateSelect from './RoundingDateSelect'
 import { analyzeDocument, type AnalyzerProgress } from '../lib/analyzer/analyze'
 import { AnalyzerError, validateFileBasics } from '../lib/analyzer/ingest'
 import type { ImportOutcome } from '../lib/analyzer/importPatients'
 import type { AnalysisResult } from '../lib/analyzer/types'
+import { fetchAnalyzerAvailable } from '../lib/apiClient'
 import { formatDateLabel, todayDateKey } from '../lib/dateUtils'
 
 interface Props {
@@ -46,16 +48,29 @@ function AnalyzerScreen({ teamId, initialDate, initialFacility = null, onViewPat
   // sheet (result.detectedDocumentDate) is only ever compared against
   // this; it never replaces it without the user choosing so in review.
   const [targetRoundingDate, setTargetRoundingDate] = useState(() => initialDate || todayDateKey())
-  const [dragging, setDragging] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  // Whether the Analyzer can be used (fetchAnalyzerAvailable); null while
+  // checking. Nothing can be chosen or sent until this is true.
+  const [available, setAvailable] = useState<boolean | null>(null)
   // Guards against a slow analysis finishing after the user has left the
   // screen or started over.
   const runRef = useRef(0)
 
   useEffect(() => () => void runRef.current++, [])
 
+  useEffect(() => {
+    let current = true
+    void fetchAnalyzerAvailable().then((yes) => {
+      if (current) setAvailable(yes)
+    })
+    return () => {
+      current = false
+    }
+  }, [])
+
   async function handleFile(file: File | undefined) {
-    if (!file) return
+    // Second guard behind AnalyzerDropzone: never open, render or crop a PDF
+    // unless the Analyzer is confirmed available.
+    if (!file || available !== true) return
     const basicsError = validateFileBasics(file)
     if (basicsError) {
       setPhase({ name: 'idle', error: basicsError })
@@ -164,41 +179,7 @@ function AnalyzerScreen({ teamId, initialDate, initialFacility = null, onViewPat
           </div>
         </div>
       ) : (
-        <div
-          className={dragging ? 'analyzer-dropzone analyzer-dropzone-active' : 'analyzer-dropzone'}
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDragging(true)
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragging(false)
-            void handleFile(e.dataTransfer.files[0])
-          }}
-        >
-          <FileUp size={28} className="analyzer-dropzone-icon" />
-          <p className="analyzer-dropzone-title">Drag &amp; drop a PDF here</p>
-          <span className="analyzer-muted">or</span>
-          <button type="button" className="btn" onClick={() => inputRef.current?.click()}>
-            Choose PDF
-          </button>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            hidden
-            onChange={(e) => {
-              void handleFile(e.target.files?.[0])
-              e.target.value = ''
-            }}
-          />
-          <ul className="analyzer-supported">
-            <li>Billing sheets</li>
-            <li>Census sheets</li>
-            <li>Scanned or exported PDF, highlighted in color</li>
-          </ul>
-        </div>
+        <AnalyzerDropzone available={available} onFile={(file) => void handleFile(file)} />
       )}
 
       <p className="analyzer-privacy">

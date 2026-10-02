@@ -520,3 +520,10 @@
     justify-content: flex-end;
   }
 }
+
+/* The Analyzer can't be used right now (or is still being checked): a quiet
+   notice in place of the drop zone, with nothing to choose or drop. */
+.analyzer-dropzone-unavailable {
+  border-style: solid;
+  cursor: default;
+}

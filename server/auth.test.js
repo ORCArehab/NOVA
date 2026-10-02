@@ -347,12 +347,13 @@ describe('roles come only from ORCA', () => {
   it('a role removed in ORCA takes effect at the next 5-minute re-check', async () => {
     const b = browser();
     await b.signIn();
-    expect((await b.request('/api/reword', { method: 'POST', rawBody: '{' })).status).toBe(400);
+    // Allowed through sign-in: the AI gate answers (AI is off in this suite).
+    expect((await b.request('/api/reword', { method: 'POST', rawBody: '{' })).status).toBe(503);
 
     orca.person = { ...orca.person, roles: ['ADMIN'] };
     advance(4 * MIN);
     // Within the window: no ORCA call yet, still allowed.
-    expect((await b.request('/api/reword', { method: 'POST', rawBody: '{' })).status).toBe(400);
+    expect((await b.request('/api/reword', { method: 'POST', rawBody: '{' })).status).toBe(503);
     expect(refreshCalls()).toBe(0);
 
     advance(1 * MIN + 1000);
@@ -583,8 +584,60 @@ describe('without OPENAI_API_KEY (the R2 production configuration)', () => {
   });
 });
 
+describe('Analyzer availability and early refusal', () => {
+  it('capabilities and the Analyzer require sign-in', async () => {
+    const b = browser();
+    expect((await b.request('/api/capabilities')).status).toBe(401);
+    expect((await b.request('/api/analyze-document/header', { method: 'POST', body: { image: 'x' } })).status).toBe(401);
+    expect((await b.request('/api/analyze-document/rows', { method: 'POST', rawBody: '{' })).status).toBe(401);
+  });
+
+  it('with AI off, the browser is told only that the Analyzer is unavailable', async () => {
+    const b = browser();
+    await b.signIn();
+    const res = await b.request('/api/capabilities');
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ analyzer: false });
+    expect(res.text).not.toMatch(/openai|key|sk-/i);
+  });
+
+  it('with AI off, Analyzer requests get 503 without the body being parsed', async () => {
+    const b = browser();
+    await b.signIn();
+    for (const path of ['/api/analyze-document/header', '/api/analyze-document/rows']) {
+      // Malformed JSON would be a 400 from the parser, an oversized body a
+      // 413, and a well-formed but invalid image a 400 from the route: all
+      // three get the gate's 503 instead, so neither the parser nor the
+      // route ran.
+      for (const rawBody of ['{"image": "data:image/jpeg;base64,SYNTHETIC', JSON.stringify({ image: 'x'.repeat(3 * 1024 * 1024) }), JSON.stringify({ image: 'not-an-image', rows: [] })]) {
+        const res = await b.request(path, { method: 'POST', rawBody });
+        expect(res.status, `${path} ${rawBody.slice(0, 20)}`).toBe(503);
+        expect(res.json.error).toMatch(/AI features aren’t enabled/);
+      }
+    }
+  });
+
+  it('with AI on, the Analyzer is available and its requests are parsed and validated as before', async () => {
+    process.env.OPENAI_API_KEY = 'test-dummy-key-never-sent';
+    const b = browser();
+    await b.signIn();
+    expect((await b.request('/api/capabilities')).json).toEqual({ analyzer: true });
+    // Parser reached: malformed JSON is a 400 again.
+    expect((await b.request('/api/analyze-document/header', { method: 'POST', rawBody: '{' })).status).toBe(400);
+    // Route reached: its own validation answers (before any AI call).
+    const header = await b.request('/api/analyze-document/header', { method: 'POST', body: { image: 'not-an-image' } });
+    expect(header.status).toBe(400);
+    expect(header.json.error).toBe('Invalid header image.');
+    const rows = await b.request('/api/analyze-document/rows', { method: 'POST', body: { rows: [] } });
+    expect(rows.status).toBe(400);
+    expect(rows.json.error).toBe('No rows to read.');
+  });
+});
+
 describe('errors and logs', () => {
   it('a malformed request body is refused generically and never logged', async () => {
+    // AI on (a dummy key, never used: the parser rejects the body first).
+    process.env.OPENAI_API_KEY = 'test-dummy-key-never-sent';
     const b = browser();
     await b.signIn();
     const marker = 'SYNTHETIC-PATIENT-NAME-ZQX';

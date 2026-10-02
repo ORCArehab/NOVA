@@ -95,6 +95,21 @@ export function demoSignIn(role: Role): Promise<CurrentUser> {
   return postJson<{ user: CurrentUser }>('/api/auth/demo', { role }).then((r) => r.user)
 }
 
+// Whether the Analyzer can be used right now (GET /api/capabilities — a
+// yes/no, nothing about configuration). Anything other than a clear yes —
+// an error, no session, an unexpected answer — counts as no, so the
+// Analyzer stays off rather than sending a document that will be refused.
+export async function fetchAnalyzerAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/capabilities', { cache: 'no-store' })
+    if (!res.ok) return false
+    const data = (await res.json().catch(() => null)) as { analyzer?: unknown } | null
+    return data?.analyzer === true
+  } catch {
+    return false
+  }
+}
+
 // Document Analyzer — see server/routes/analyzeDocument.js. Only cropped
 // highlighted rows and page 1's header are sent, never the whole PDF.
 export function readDocumentHeader(image: string): Promise<HeaderReading> {

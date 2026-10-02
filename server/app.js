@@ -34,21 +34,34 @@ app.use(auditLog);
 // and request bodies are only read once that's established.
 app.use('/api/auth', express.json({ limit: '16kb' }), authRouter);
 app.use('/api', requireAuth);
-app.use(express.json({ limit: '2mb' }));
+
+// GET /api/capabilities -> { analyzer } — whether the Analyzer can be used,
+// so the browser can switch it off before any document is chosen. A yes/no
+// only; nothing about how AI is configured.
+app.get('/api/capabilities', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ analyzer: aiEnabled() });
+});
 
 // The AI routes need OPENAI_API_KEY. A deployment can leave it unset: NOVA
-// still signs people in, and these routes say AI isn't enabled.
+// still signs people in, and these routes say AI isn't enabled. requireAi
+// runs before the body parser, so when AI is off the app answers 503
+// without reading or parsing the request body (note text, document crops).
+// The browser is what keeps documents from being sent at all (see
+// AnalyzerScreen); this is the second line.
 function requireAi(req, res, next) {
   if (!aiEnabled()) return res.status(503).json({ error: 'NOVA’s AI features aren’t enabled on this deployment.' });
   next();
 }
 
-app.use('/api/reword', requireAi, rewordRouter);
-app.use('/api/chat', requireAi, chatRouter);
-app.use('/api/update-note', requireAi, updateNoteRouter);
-app.use('/api/suggestions', requireAi, suggestionsRouter);
-app.use('/api/apply-suggestions', requireAi, applySuggestionsRouter);
-app.use('/api/analyze-document', requireAi, analyzeDocumentRouter);
+const readJsonBody = express.json({ limit: '2mb' });
+
+app.use('/api/reword', requireAi, readJsonBody, rewordRouter);
+app.use('/api/chat', requireAi, readJsonBody, chatRouter);
+app.use('/api/update-note', requireAi, readJsonBody, updateNoteRouter);
+app.use('/api/suggestions', requireAi, readJsonBody, suggestionsRouter);
+app.use('/api/apply-suggestions', requireAi, readJsonBody, applySuggestionsRouter);
+app.use('/api/analyze-document', requireAi, readJsonBody, analyzeDocumentRouter);
 
 // Last resort for anything a route didn't handle. Logs only what failed and
 // where — never the request body (note text is PHI), cookies or tokens —

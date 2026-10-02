@@ -1,90 +1,102 @@
+import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import './RoleSelectScreen.css'
+import AddPatientForm from './AddPatientForm'
 import RoundProgress from './RoundProgress'
-import { formatDate, todayDateKey } from '../lib/dateUtils'
-import { listRoundingDates, type RoundingDateSummary } from '../lib/patientStore'
-import { groupRoundsForHome } from '../lib/roundingProgress'
+import RoundingDateSelect from './RoundingDateSelect'
+import { formatDateLabel } from '../lib/dateUtils'
+import { listFacilityRounds, type FacilityRoundSummary } from '../lib/patientStore'
+
+export interface FacilityRef {
+  key: string
+  name: string
+}
 
 interface Props {
   teamId: string
-  onOpenRoundingDate: (date: string) => void
+  // The rounding date in view — held by App, so it carries into a facility
+  // round and back.
+  roundingDate: string
+  onChangeDate: (date: string) => void
+  onOpenFacility: (facility: FacilityRef) => void
   onOpenAnalyzer: () => void
 }
 
-// Past this many previous rounds, the rest sit behind "Show older" so a
-// long history doesn't bury today's round.
-const PREVIOUS_VISIBLE = 10
-
-function RoundCard({ round, isToday, onOpen }: { round: RoundingDateSummary; isToday: boolean; onOpen: () => void }) {
+function FacilityCard({ round, onOpen }: { round: FacilityRoundSummary; onOpen: () => void }) {
   return (
     <button type="button" className="round-card" onClick={onOpen}>
       <span className="round-card-top">
-        <span className="round-card-date">{formatDate(round.date)}</span>
-        {isToday && <span className="round-today-badge">Today</span>}
+        <span className="round-card-date">{round.name}</span>
+        <span className="round-card-count">
+          {round.total} patient{round.total === 1 ? '' : 's'}
+        </span>
       </span>
-      <RoundProgress round={round} />
+      <RoundProgress round={round} label={round.name} hidePercent />
     </button>
   )
 }
 
-// Home: which round am I working on, and how far along is it? Everything
-// else (per-status breakdowns, the patients themselves) is one click away
-// on the Patients screen's date view, so it isn't repeated here.
-function RoleSelectScreen({ teamId, onOpenRoundingDate, onOpenAnalyzer }: Props) {
-  const [showAllPrevious, setShowAllPrevious] = useState(false)
-  const today = todayDateKey()
-  const { current, upcoming, previous } = groupRoundsForHome(listRoundingDates(teamId), today)
-  const visiblePrevious = showAllPrevious ? previous : previous.slice(0, PREVIOUS_VISIBLE)
-
-  const renderCard = (round: RoundingDateSummary) => (
-    <li key={round.date}>
-      <RoundCard round={round} isToday={round.date === today} onOpen={() => onOpenRoundingDate(round.date)} />
-    </li>
-  )
+// Home: pick the rounding date, then the facility. Each card is just where,
+// how many, and how many are done — the patients are one click away.
+function RoleSelectScreen({ teamId, roundingDate, onChangeDate, onOpenFacility, onOpenAnalyzer }: Props) {
+  const [addOpen, setAddOpen] = useState(false)
+  // Re-read after Add Patient; everything else comes straight from storage.
+  const [, setVersion] = useState(0)
+  const facilities = listFacilityRounds(teamId, roundingDate)
 
   return (
     <div className="home-screen">
       <div className="home-content">
-        <h1 className="home-title">Rounding Dates</h1>
+        <div className="home-header">
+          <h1 className="home-title">Rounds</h1>
+          <label className="home-date">
+            <span>Rounding date</span>
+            <RoundingDateSelect id="home-round-date" teamId={teamId} value={roundingDate} onChange={onChangeDate} />
+          </label>
+        </div>
 
-        {!current && upcoming.length === 0 ? (
+        {facilities.length === 0 ? (
           <div className="home-empty">
-            <p>No rounding dates yet.</p>
+            <p>No patients on {formatDateLabel(roundingDate)}.</p>
             <p className="home-empty-hint">
               Import a census with the{' '}
               <button type="button" className="home-link" onClick={onOpenAnalyzer}>
                 Analyzer
               </button>
               , or{' '}
-              <button type="button" className="home-link" onClick={() => onOpenRoundingDate(today)}>
-                add patients to today’s round
+              <button type="button" className="home-link" onClick={() => setAddOpen(true)}>
+                add a patient
               </button>
               .
             </p>
           </div>
         ) : (
-          <>
-            {current && <ul className="round-list">{renderCard(current)}</ul>}
+          <ul className="round-list">
+            {facilities.map((round) => (
+              <li key={round.key}>
+                <FacilityCard round={round} onOpen={() => onOpenFacility({ key: round.key, name: round.name })} />
+              </li>
+            ))}
+          </ul>
+        )}
 
-            {upcoming.length > 0 && (
-              <section className="home-section">
-                <h2 className="home-section-heading">Upcoming</h2>
-                <ul className="round-list">{upcoming.map(renderCard)}</ul>
-              </section>
-            )}
-
-            {previous.length > 0 && (
-              <section className="home-section">
-                <h2 className="home-section-heading">Previous</h2>
-                <ul className="round-list">{visiblePrevious.map(renderCard)}</ul>
-                {previous.length > PREVIOUS_VISIBLE && (
-                  <button type="button" className="home-link home-show-more" onClick={() => setShowAllPrevious((v) => !v)}>
-                    {showAllPrevious ? 'Show fewer' : `Show ${previous.length - PREVIOUS_VISIBLE} older`}
-                  </button>
-                )}
-              </section>
-            )}
-          </>
+        {addOpen ? (
+          <AddPatientForm
+            teamId={teamId}
+            roundingDate={roundingDate}
+            onAdded={() => {
+              setAddOpen(false)
+              setVersion((v) => v + 1)
+            }}
+            onCancel={() => setAddOpen(false)}
+          />
+        ) : (
+          facilities.length > 0 && (
+            <button type="button" className="btn btn-sm home-add" onClick={() => setAddOpen(true)}>
+              <Plus size={15} />
+              Add Patient
+            </button>
+          )
         )}
       </div>
     </div>

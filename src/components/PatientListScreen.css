@@ -452,3 +452,24 @@
     min-height: 280px;
   }
 }
+
+/* Facility round header: back link, facility + date, then count and progress. */
+.patient-round-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin-bottom: 8px;
+}
+
+.patient-round-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+}
+
+.patient-round-count {
+  font-size: 14px;
+  color: var(--text);
+}

@@ -9,14 +9,16 @@ import ImportPdfPanel from './components/ImportPdfPanel'
 import LoginScreen from './components/LoginScreen'
 import OutputPanel, { type RewordStatus } from './components/OutputPanel'
 import PatientListScreen from './components/PatientListScreen'
-import RoleSelectScreen from './components/RoleSelectScreen'
+import RoleSelectScreen, { type FacilityRef } from './components/RoleSelectScreen'
 import SuggestionsPanel from './components/SuggestionsPanel'
 import TaskBar from './components/TaskBar'
 import TeamScreen from './components/TeamScreen'
 import UploadToolScreen from './components/UploadToolScreen'
 import { ApiError, applySuggestions, fetchSession, rewordText, signOut, updateNoteWithAnswer } from './lib/apiClient'
 import { checkCompletenessLocal } from './lib/completenessCheck'
-import { getPatientById, saveNote } from './lib/patientStore'
+import { formatDateLabel, todayDateKey } from './lib/dateUtils'
+import { facilityKey, getPatientById, listFacilityRounds, listRoundingDates, PATIENT_STAGE_LABELS, patientStage, saveNote } from './lib/patientStore'
+import { defaultRoundDate } from './lib/roundingProgress'
 import type { CurrentUser, NoteType, Patient, Signer } from './lib/types'
 
 // server/routes/auth.js sends the browser back to /?authError=<code> when
@@ -59,15 +61,21 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 'home' is the dashboard landing page; 'app' is the note workspace.
-  // 'patients' (one rounding date)/'upload'/'analyzer'/'team' overlay whichever of those is
-  // current — they don't replace the state underneath, so returning from
-  // any of them lands back where you were.
-  const [screen, setScreen] = useState<'home' | 'app' | 'patients' | 'upload' | 'analyzer' | 'team'>('home')
-  // Which round the patients screen shows.
+  // 'home' is the facility list for a rounding date; 'facility' is one
+  // facility's round; 'app' is the note workspace. 'upload'/'analyzer'/'team'
+  // overlay whichever of those is current — they don't replace the state
+  // underneath, so returning from any of them lands back where you were.
+  const [screen, setScreen] = useState<'home' | 'facility' | 'app' | 'upload' | 'analyzer' | 'team'>('home')
+  // The rounding date in view, shared by Home and the facility round; null
+  // until chosen, when Home opens on defaultRoundDate.
   const [roundDate, setRoundDate] = useState<string | null>(null)
+  // The facility round open (or last open).
+  const [facility, setFacility] = useState<FacilityRef | null>(null)
+  // Where the Analyzer was opened from, so it can import into that round.
+  const [analyzerContext, setAnalyzerContext] = useState<{ date: string; facility: string | null }>({ date: '', facility: null })
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
-  const [selectedPatientName, setSelectedPatientName] = useState<string | null>(null)
+  // The open note's encounter context, for the workspace header.
+  const [selectedPatient, setSelectedPatient] = useState<Pick<Patient, 'name' | 'facility' | 'roundingDate' | 'uploaded'> | null>(null)
 
   const [rewordStatus, setRewordStatus] = useState<RewordStatus>('idle')
   const [reworded, setReworded] = useState<string | null>(null)
@@ -122,7 +130,7 @@ function App() {
   // selection from whoever was open before.
   function handleSelectPatient(patient: Patient) {
     setSelectedPatientId(patient.id)
-    setSelectedPatientName(patient.name)
+    setSelectedPatient({ name: patient.name, facility: patient.facility, roundingDate: patient.roundingDate, uploaded: patient.uploaded })
     setNoteType(patient.noteType)
     setExtractedText(patient.extractedText)
     setReworded(patient.reworded)
@@ -152,7 +160,7 @@ function App() {
   // before, especially now that it could belong to a different team).
   function resetWorkspace() {
     setSelectedPatientId(null)
-    setSelectedPatientName(null)
+    setSelectedPatient(null)
     setNoteType('initial')
     setExtractedText(null)
     setReworded(null)
@@ -296,17 +304,35 @@ function App() {
     if (text) runCompletenessCheck(text)
   }
 
-  function handleOpenRound(date: string) {
+  function handleOpenFacility(ref: FacilityRef, date: string) {
+    setFacility(ref)
     setRoundDate(date)
-    setScreen('patients')
+    setScreen('facility')
   }
 
-  // Back/Done from the note workspace: return to the open patient's round,
-  // or Home when no patient was open.
+  // A facility as Home's card names it on that date (its most common
+  // spelling), falling back to the given spelling.
+  function facilityRef(name: string, date: string): FacilityRef {
+    const key = facilityKey(name)
+    const shown = currentUser ? listFacilityRounds(currentUser.teamId, date).find((f) => f.key === key)?.name : undefined
+    return { key, name: shown ?? name.trim() }
+  }
+
+  // Back/Done from the note workspace: return to the open patient's facility
+  // round, or Home when no patient was open.
   function handleLeaveWorkspace() {
     const patient = selectedPatientId ? getPatientById(selectedPatientId) : null
-    if (patient) handleOpenRound(patient.roundingDate)
+    if (patient) handleOpenFacility(facilityRef(patient.facility, patient.roundingDate), patient.roundingDate)
     else setScreen('home')
+  }
+
+  // The Analyzer imports into the round it was opened from: a facility
+  // round's facility and date, or Home's date. Both stay editable there.
+  function handleOpenAnalyzer() {
+    if (!currentUser) return
+    const date = roundDate ?? defaultRoundDate(listRoundingDates(currentUser.teamId), todayDateKey())
+    setAnalyzerContext({ date, facility: screen === 'facility' && facility ? facility.name : null })
+    setScreen('analyzer')
   }
 
   // Takes the user exactly as the server reported them — role and team both
@@ -315,6 +341,8 @@ function App() {
   function handleLogin(user: CurrentUser) {
     setCurrentUser(user)
     setAuth({ status: 'signedIn' })
+    setRoundDate(null)
+    setFacility(null)
     setScreen('home')
   }
 
@@ -347,16 +375,19 @@ function App() {
         onLogin={handleLogin}
       />
     )
-  } else if (screen === 'patients' && roundDate) {
+  } else if (screen === 'facility' && facility && roundDate) {
     pageContent = (
       <PatientListScreen
         // Remount per round — filters and the preview belong to one round.
-        key={roundDate}
+        key={`${facility.key}|${roundDate}`}
         teamId={currentUser.teamId}
         canSign={currentUser.role === 'provider'}
         signer={{ id: currentUser.id, name: currentUser.name }}
         activePatientId={selectedPatientId}
+        facility={facility}
         roundingDate={roundDate}
+        onChangeDate={setRoundDate}
+        onBack={() => setScreen('home')}
         onSelect={handleSelectPatient}
         onDelete={handleDeletePatient}
       />
@@ -365,7 +396,12 @@ function App() {
     pageContent = <UploadToolScreen teamId={currentUser.teamId} />
   } else if (screen === 'analyzer') {
     pageContent = (
-      <AnalyzerScreen teamId={currentUser.teamId} onViewPatients={handleOpenRound} />
+      <AnalyzerScreen
+        teamId={currentUser.teamId}
+        initialDate={analyzerContext.date}
+        initialFacility={analyzerContext.facility}
+        onViewPatients={(date, imported) => handleOpenFacility(facilityRef(imported, date), date)}
+      />
     )
   } else if (screen === 'team') {
     pageContent = <TeamScreen currentUser={currentUser} />
@@ -373,12 +409,16 @@ function App() {
     pageContent = (
       <RoleSelectScreen
         teamId={currentUser.teamId}
-        onOpenRoundingDate={handleOpenRound}
-        onOpenAnalyzer={() => setScreen('analyzer')}
+        roundingDate={roundDate ?? defaultRoundDate(listRoundingDates(currentUser.teamId), todayDateKey())}
+        onChangeDate={setRoundDate}
+        onOpenFacility={(ref) => handleOpenFacility(ref, roundDate ?? defaultRoundDate(listRoundingDates(currentUser.teamId), todayDateKey()))}
+        onOpenAnalyzer={handleOpenAnalyzer}
       />
     )
   } else {
     const isProvider = currentUser.role === 'provider'
+    // Live from the workspace's own state, so it changes as the note does.
+    const stage = patientStage({ extractedText, reworded, signed, uploaded: selectedPatient?.uploaded ?? false })
 
     // One role/status-aware action. Scribes hand off; providers sign.
     // Nobody signs an empty note, and a signature shows who and when.
@@ -421,9 +461,17 @@ function App() {
               <ArrowLeft size={15} />
               Back
             </button>
-            <span className="app-topbar-patient">
-              {selectedPatientName ? `Patient: ${selectedPatientName}` : 'No patient selected'}
-            </span>
+            {selectedPatient ? (
+              <span className="app-topbar-patient">
+                <span className="app-topbar-patient-name">{selectedPatient.name}</span>
+                <span className="app-topbar-patient-meta">
+                  {selectedPatient.facility} · {formatDateLabel(selectedPatient.roundingDate)}
+                </span>
+                <span className={`patient-stage patient-stage-${stage}`}>{PATIENT_STAGE_LABELS[stage]}</span>
+              </span>
+            ) : (
+              <span className="app-topbar-patient">No patient selected</span>
+            )}
           </div>
           <div className="app-topbar-actions">{noteAction}</div>
         </div>
@@ -485,7 +533,7 @@ function App() {
         onHome={handleGoHome}
         onOpenTeam={() => setScreen('team')}
         onOpenUploadTool={() => setScreen('upload')}
-        onOpenAnalyzer={() => setScreen('analyzer')}
+        onOpenAnalyzer={handleOpenAnalyzer}
         onSignOut={() => void handleSignOut()}
       />
       <div className="app-body">

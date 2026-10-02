@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import './AnalyzerScreen.css'
 import RoundingDateSelect from './RoundingDateSelect'
 import { checkDocumentDate } from '../lib/analyzer/documentDate'
-import { assessPatient, type ReviewAssessment } from '../lib/analyzer/duplicates'
+import { assessPatient, normalizeFacility, type ReviewAssessment } from '../lib/analyzer/duplicates'
 import { importPatients, type ImportOutcome } from '../lib/analyzer/importPatients'
 import type { AnalysisResult, DetectedPatient, DocumentType } from '../lib/analyzer/types'
 import { isPlausibleName } from '../lib/analyzer/validate'
@@ -19,7 +19,9 @@ interface Props {
   targetRoundingDate: string
   onChangeTarget: (date: string) => void
   onCancel: () => void
-  onImported: (outcome: ImportOutcome, roundingDate: string) => void
+  // The facility round the Analyzer was opened from, if any.
+  initialFacility?: string | null
+  onImported: (outcome: ImportOutcome, roundingDate: string, facility: string) => void
 }
 
 interface ReviewRow {
@@ -46,12 +48,16 @@ const STATUS_LABEL = { ready: 'Ready', alreadyExists: 'Already exists', needsRev
 // duplicate status is recomputed live against the facility and target
 // rounding date the user settles on, not just what the AI read off the
 // sheet.
-function AnalyzerReview({ teamId, fileName, result, targetRoundingDate, onChangeTarget, onCancel, onImported }: Props) {
+function AnalyzerReview({ teamId, fileName, result, targetRoundingDate, onChangeTarget, onCancel, initialFacility, onImported }: Props) {
   const existing = useMemo(() => listPatients(teamId), [teamId])
   const knownFacilities = useMemo(() => [...new Set(existing.map((p) => p.facility))].sort(), [existing])
 
   const [documentType, setDocumentType] = useState<DocumentType>(result.documentType)
-  const [facility, setFacility] = useState(result.facility ?? '')
+  // Opened from a facility round: that facility, unless changed here.
+  // Otherwise whatever the sheet's header says.
+  const [facility, setFacility] = useState(initialFacility ?? result.facility ?? '')
+  const sheetDiffers =
+    Boolean(result.facility) && Boolean(facility.trim()) && normalizeFacility(result.facility ?? '') !== normalizeFacility(facility)
   // The target date the user explicitly kept despite a mismatch — the
   // warning stays dismissed only for that date.
   const [keptDate, setKeptDate] = useState<string | null>(null)
@@ -99,7 +105,7 @@ function AnalyzerReview({ teamId, fileName, result, targetRoundingDate, onChange
         facility,
         date,
       )
-      onImported(outcome, date)
+      onImported(outcome, date, facility.trim())
     } catch {
       setImportError('Couldn’t save the patients. Check that your browser allows site storage and try again.')
     }
@@ -141,6 +147,14 @@ function AnalyzerReview({ teamId, fileName, result, targetRoundingDate, onChange
           <span>
             Facility
             {!result.facility && <em className="analyzer-field-hint"> — not found on the sheet</em>}
+            {sheetDiffers && (
+              <em className="analyzer-field-hint">
+                {' '}— the sheet reads “{result.facility}”{' '}
+                <button type="button" className="analyzer-link" onClick={() => setFacility(result.facility ?? '')}>
+                  Use it
+                </button>
+              </em>
+            )}
           </span>
           <input
             value={facility}

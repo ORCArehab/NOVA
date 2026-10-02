@@ -1,4 +1,4 @@
-/* Home — a single calm column of rounding-date cards. */
+/* Home — a rounding date, then a single calm column of facility cards. */
 
 .home-screen {
   height: 100%;
@@ -20,21 +20,6 @@
   font-weight: 500;
   font-size: 28px;
   color: var(--text-h);
-  margin: 0;
-}
-
-.home-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.home-section-heading {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: var(--text);
   margin: 0;
 }
 
@@ -79,6 +64,32 @@
   gap: 12px;
 }
 
+.home-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.home-date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.round-card-count {
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.home-add {
+  align-self: flex-start;
+}
+
 .round-card-date {
   font-size: 17px;
   font-weight: 500;
@@ -110,11 +121,6 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-}
-
-.home-show-more {
-  align-self: flex-start;
-  font-size: 13px;
 }
 
 @media (max-width: 480px) {

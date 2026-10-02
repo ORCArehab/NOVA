@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isPatientComplete, patientStage } from './patientStore'
-import { groupRoundsForHome, progressPercent } from './roundingProgress'
+import { defaultRoundDate, groupRoundsForHome, progressPercent } from './roundingProgress'
 import type { Patient } from './types'
 
 const round = (date: string, total = 1, complete = 0) => ({ date, total, complete })
@@ -72,5 +72,15 @@ describe('patientStage', () => {
     expect(patientStage({ ...p, reworded: 'note', signed: true, uploaded: true })).toBe('complete')
     // Unsigned after upload: back to needing a signature, not complete.
     expect(patientStage({ ...p, reworded: 'note', uploaded: true })).toBe('awaitingSignature')
+  })
+})
+
+describe('defaultRoundDate', () => {
+  const r = (date: string) => ({ date, total: 1, complete: 0 })
+  it('opens on today, else the latest past round, else the soonest upcoming, else today', () => {
+    expect(defaultRoundDate([r('2026-10-02'), r('2026-10-01'), r('2026-09-30')], '2026-10-01')).toBe('2026-10-01')
+    expect(defaultRoundDate([r('2026-09-30'), r('2026-09-28')], '2026-10-01')).toBe('2026-09-30')
+    expect(defaultRoundDate([r('2026-10-05'), r('2026-10-03')], '2026-10-01')).toBe('2026-10-03')
+    expect(defaultRoundDate([], '2026-10-01')).toBe('2026-10-01')
   })
 })

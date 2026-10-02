@@ -1,14 +1,17 @@
-import { FilePen, FilePlus2, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, FilePen, FilePlus2, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import './PatientListScreen.css'
+import AddPatientForm from './AddPatientForm'
+import type { FacilityRef } from './RoleSelectScreen'
 import RoundProgress from './RoundProgress'
-import { formatDate, todayDateKey } from '../lib/dateUtils'
+import RoundingDateSelect from './RoundingDateSelect'
+import { formatDateLabel } from '../lib/dateUtils'
 import { seedMockPatients } from '../lib/mockPatients'
 import {
-  createPatient,
   deletePatient,
+  facilityKey,
+  listFacilityRoundingDates,
   listPatients,
-  listRoundingDates,
   PATIENT_STAGE_LABELS,
   patientStage,
   signPatientNote,
@@ -23,9 +26,12 @@ interface Props {
   canSign: boolean
   signer: Signer
   activePatientId: string | null
-  // The round this screen shows — opened from a Home card, the Analyzer's
-  // "View Patients", or Back/Done in the note workspace.
+  // The facility round this screen shows — opened from a Home card, the
+  // Analyzer's "View Patients", or Back/Done in the note workspace.
+  facility: FacilityRef
   roundingDate: string
+  onChangeDate: (date: string) => void
+  onBack: () => void
   onSelect: (patient: Patient) => void
   onDelete: (id: string) => void
 }
@@ -39,19 +45,28 @@ function normalize(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim()
 }
 
-// "Which patient needs my attention?" — a round's progress up top, then
-// the patient list as the main content, with the selected patient's note
-// previewed on the right.
-function PatientListScreen({ teamId, canSign, signer, activePatientId, roundingDate: roundDate, onSelect, onDelete }: Props) {
+// One facility's round: "which patient needs my attention?" — the facility,
+// date and progress up top, then the patient list as the main content, with
+// the selected patient's note previewed on the right. The same screen for
+// providers and scribes; only signing depends on the role (canSign).
+function PatientListScreen({
+  teamId,
+  canSign,
+  signer,
+  activePatientId,
+  facility,
+  roundingDate: roundDate,
+  onChangeDate,
+  onBack,
+  onSelect,
+  onDelete,
+}: Props) {
   const [patients, setPatients] = useState<Patient[]>(() => listPatients(teamId))
 
   const [search, setSearch] = useState('')
-  const [facilityFilter, setFacilityFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<PatientStage | ''>('')
 
   const [addOpen, setAddOpen] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newFacility, setNewFacility] = useState('')
 
   // Armed by a first click on Delete; a second click on the same row
   // actually deletes. Only one row can be armed at a time.
@@ -64,46 +79,28 @@ function PatientListScreen({ teamId, canSign, signer, activePatientId, roundingD
   const [previewId, setPreviewId] = useState<string | null>(activePatientId)
   const previewPatient = patients.find((p) => p.id === previewId) ?? null
 
-  const scoped = patients.filter((p) => p.roundingDate === roundDate)
-  const facilities = [...new Set(scoped.map((p) => p.facility))].sort((a, b) => a.localeCompare(b))
-  const allFacilities = [...new Set(patients.map((p) => p.facility))].sort((a, b) => a.localeCompare(b))
+  // Grouped the same way as Home's cards (patientStore's facilityKey).
+  const scoped = patients.filter((p) => p.roundingDate === roundDate && facilityKey(p.facility) === facility.key)
 
   const query = normalize(search)
   const visiblePatients = scoped.filter(
     (p) =>
       (!query || normalize(p.name).includes(query)) &&
-      (!facilityFilter || p.facility === facilityFilter) &&
       (!statusFilter || patientStage(p) === statusFilter),
   )
   const filterParts = [
     statusFilter && PATIENT_STAGE_LABELS[statusFilter],
-    facilityFilter,
     query && `“${search.trim()}”`,
   ].filter(Boolean)
   const isFiltered = filterParts.length > 0
 
-  // Same source as Home's cards, so the two always agree.
-  const round = listRoundingDates(teamId).find((r) => r.date === roundDate) ?? { date: roundDate, total: 0, complete: 0 }
+  // This facility's rounds — the same counts as its Home card.
+  const facilityRounds = listFacilityRoundingDates(teamId, facility.key)
+  const round = facilityRounds.find((r) => r.date === roundDate) ?? { date: roundDate, total: 0, complete: 0 }
 
   function clearFilters() {
     setSearch('')
-    setFacilityFilter('')
     setStatusFilter('')
-  }
-
-  function closeAddForm() {
-    setAddOpen(false)
-    setNewName('')
-    setNewFacility('')
-  }
-
-  function handleCreate() {
-    const name = newName.trim()
-    const facility = newFacility.trim()
-    if (!name || !facility) return
-    createPatient(name, teamId, facility, roundDate)
-    setPatients(listPatients(teamId))
-    closeAddForm()
   }
 
   function handleDeleteClick(id: string) {
@@ -144,7 +141,6 @@ function PatientListScreen({ teamId, canSign, signer, activePatientId, roundingD
         <button type="button" className="patient-row-select" onClick={() => setPreviewId(p.id)}>
           <span className="patient-row-text">
             <span className="patient-row-name">{p.name}</span>
-            <span className="patient-row-meta">{p.facility}</span>
           </span>
           <span className={`patient-stage patient-stage-${stage}`}>{PATIENT_STAGE_LABELS[stage]}</span>
         </button>
@@ -188,7 +184,6 @@ function PatientListScreen({ teamId, canSign, signer, activePatientId, roundingD
         <div className="patient-preview-header">
           <div className="patient-preview-identity">
             <h2>{patient.name}</h2>
-            <span className="patient-preview-meta">{patient.facility}</span>
             <span className={`patient-stage patient-stage-${stage}`}>{PATIENT_STAGE_LABELS[stage]}</span>
           </div>
           {hasNote ? (
@@ -235,17 +230,36 @@ function PatientListScreen({ teamId, canSign, signer, activePatientId, roundingD
     )
   }
 
-  const emptyMessage = isFiltered ? 'No patients match these filters.' : 'No patients on this round yet.'
+  const emptyMessage = isFiltered
+    ? 'No patients match these filters.'
+    : `No patients at ${facility.name} on ${formatDateLabel(roundDate)}.`
 
   return (
     <div className="patient-list-screen">
       <div className="patient-list-main">
+        <button type="button" className="patient-text-button patient-round-back" onClick={onBack}>
+          <ArrowLeft size={14} />
+          All facilities
+        </button>
         <div className="patient-round-header">
           <div className="patient-round-title">
-            <h1>{formatDate(round.date)}</h1>
-            {round.date === todayDateKey() && <span className="round-today-badge">Today</span>}
+            <h1>{facility.name}</h1>
+            <RoundingDateSelect
+              id="facility-round-date"
+              teamId={teamId}
+              rounds={facilityRounds}
+              value={roundDate}
+              onChange={onChangeDate}
+            />
           </div>
-          <RoundProgress round={round} />
+          {round.total > 0 && (
+            <div className="patient-round-progress">
+              <span className="patient-round-count">
+                {round.total} patient{round.total === 1 ? '' : 's'}
+              </span>
+              <RoundProgress round={round} label={facility.name} hidePercent />
+            </div>
+          )}
         </div>
 
         <h2 className="patient-list-heading">Patients</h2>
@@ -259,16 +273,6 @@ function PatientListScreen({ teamId, canSign, signer, activePatientId, roundingD
             placeholder="Search patients…"
             aria-label="Search patients by name"
           />
-          {facilities.length > 1 && (
-            <select value={facilityFilter} onChange={(e) => setFacilityFilter(e.target.value)} aria-label="Filter by facility">
-              <option value="">Facility</option>
-              {facilities.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          )}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as PatientStage | '')}
@@ -281,49 +285,23 @@ function PatientListScreen({ teamId, canSign, signer, activePatientId, roundingD
               </option>
             ))}
           </select>
-          <button type="button" className="btn btn-sm patient-toolbar-add" onClick={() => (addOpen ? closeAddForm() : setAddOpen(true))}>
+          <button type="button" className="btn btn-sm patient-toolbar-add" onClick={() => setAddOpen((open) => !open)}>
             <Plus size={15} />
             Add Patient
           </button>
         </div>
 
         {addOpen && (
-          <form
-            className="patient-add"
-            onSubmit={(e) => {
-              e.preventDefault()
-              handleCreate()
+          <AddPatientForm
+            teamId={teamId}
+            initialFacility={facility.name}
+            roundingDate={roundDate}
+            onAdded={() => {
+              setPatients(listPatients(teamId))
+              setAddOpen(false)
             }}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') closeAddForm()
-            }}
-          >
-            <label className="patient-add-field">
-              <span>Patient name</span>
-              <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus />
-            </label>
-            <label className="patient-add-field">
-              <span>Facility</span>
-              <input value={newFacility} onChange={(e) => setNewFacility(e.target.value)} list="patient-add-facilities" />
-              <datalist id="patient-add-facilities">
-                {allFacilities.map((f) => (
-                  <option key={f} value={f} />
-                ))}
-              </datalist>
-            </label>
-            <div className="patient-add-field">
-              <span>Rounding date</span>
-              <span className="patient-add-date">{formatDate(roundDate)}</span>
-            </div>
-            <div className="patient-add-actions">
-              <button type="button" className="btn btn-sm" onClick={closeAddForm}>
-                Cancel
-              </button>
-              <button type="submit" className="btn btn-sm" disabled={!newName.trim() || !newFacility.trim()}>
-                Add Patient
-              </button>
-            </div>
-          </form>
+            onCancel={() => setAddOpen(false)}
+          />
         )}
 
         {isFiltered && (

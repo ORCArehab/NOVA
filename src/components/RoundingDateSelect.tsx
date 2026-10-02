@@ -1,26 +1,30 @@
 import { useState } from 'react'
 import { roundOptions } from '../lib/analyzer/documentDate'
 import { formatDateLabel, todayDateKey } from '../lib/dateUtils'
-import { listRoundingDates } from '../lib/patientStore'
+import { listRoundingDates, type RoundingDateSummary } from '../lib/patientStore'
 
 interface Props {
   teamId: string
   value: string
   onChange: (date: string) => void
   id?: string
+  // Which rounds to offer — defaults to all of the team's (e.g. one
+  // facility's rounds on the facility screen).
+  rounds?: RoundingDateSummary[]
 }
 
 const OTHER = '__other'
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
-// Picks which round the Analyzer imports into. Options come from the same
-// rounding dates Home and the Patients screen show; a date with no
+// Picks a rounding date — on Home, in a facility round (that facility's
+// dates, via rounds), and for where the Analyzer imports. Options are the
+// existing rounding dates; a date with no
 // patients yet is labeled "new round" — importing into it creates it, the
 // same way the first Add Patient on a date does.
-function RoundingDateSelect({ teamId, value, onChange, id }: Props) {
+function RoundingDateSelect({ teamId, value, onChange, id, rounds }: Props) {
   const [pickingOther, setPickingOther] = useState(false)
   const today = todayDateKey()
-  const options = roundOptions(listRoundingDates(teamId), today)
+  const options = roundOptions(rounds ?? listRoundingDates(teamId), today)
   // A date chosen via "Other date…" (or accepted from the sheet) that
   // isn't an existing round yet.
   if (!options.some((o) => o.date === value)) {

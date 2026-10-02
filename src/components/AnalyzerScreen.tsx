@@ -11,14 +11,18 @@ import { formatDateLabel, todayDateKey } from '../lib/dateUtils'
 
 interface Props {
   teamId: string
-  onViewPatients: (roundingDate: string) => void
+  // The round it was opened from (a facility round, or Home's date) —
+  // pre-filled, still changeable.
+  initialDate?: string
+  initialFacility?: string | null
+  onViewPatients: (roundingDate: string, facility: string) => void
 }
 
 type Phase =
   | { name: 'idle'; error: string | null }
   | { name: 'analyzing'; fileName: string; progress: AnalyzerProgress }
   | { name: 'review'; fileName: string; result: AnalysisResult }
-  | { name: 'done'; outcome: ImportOutcome; roundingDate: string }
+  | { name: 'done'; outcome: ImportOutcome; roundingDate: string; facility: string }
 
 function progressLabel(progress: AnalyzerProgress): string {
   switch (progress.step) {
@@ -35,13 +39,13 @@ function progressLabel(progress: AnalyzerProgress): string {
 // the user confirms on the review screen (AnalyzerReview), and the PDF,
 // its rendered pages, and the row crops live only in this component's
 // memory — leaving the screen discards them.
-function AnalyzerScreen({ teamId, onViewPatients }: Props) {
+function AnalyzerScreen({ teamId, initialDate, initialFacility = null, onViewPatients }: Props) {
   const [phase, setPhase] = useState<Phase>({ name: 'idle', error: null })
   // Where confirmed patients will be imported — chosen by the user before
-  // uploading, defaulting to today's round. The date NOVA reads off the
+  // uploading, defaulting to the round it was opened from (else today's). The date NOVA reads off the
   // sheet (result.detectedDocumentDate) is only ever compared against
   // this; it never replaces it without the user choosing so in review.
-  const [targetRoundingDate, setTargetRoundingDate] = useState(() => todayDateKey())
+  const [targetRoundingDate, setTargetRoundingDate] = useState(() => initialDate || todayDateKey())
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   // Guards against a slow analysis finishing after the user has left the
@@ -88,7 +92,8 @@ function AnalyzerScreen({ teamId, onViewPatients }: Props) {
           targetRoundingDate={targetRoundingDate}
           onChangeTarget={setTargetRoundingDate}
           onCancel={startOver}
-          onImported={(outcome, roundingDate) => setPhase({ name: 'done', outcome, roundingDate })}
+          initialFacility={initialFacility}
+          onImported={(outcome, roundingDate, facility) => setPhase({ name: 'done', outcome, roundingDate, facility })}
         />
       </div>
     )
@@ -113,7 +118,7 @@ function AnalyzerScreen({ teamId, onViewPatients }: Props) {
             <button type="button" className="btn btn-sm" onClick={startOver}>
               Analyze another document
             </button>
-            <button type="button" className="btn" onClick={() => onViewPatients(phase.roundingDate)}>
+            <button type="button" className="btn" onClick={() => onViewPatients(phase.roundingDate, phase.facility)}>
               View Patients
             </button>
           </div>

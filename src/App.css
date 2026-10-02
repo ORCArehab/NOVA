@@ -52,8 +52,18 @@
 }
 
 .app-topbar-patient {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   color: var(--text);
   font-size: 13px;
+}
+
+.app-topbar-patient-name {
+  color: var(--text-h);
+  font-weight: 500;
+  font-size: 14px;
 }
 
 .app-topbar-actions {

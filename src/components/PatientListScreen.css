@@ -223,11 +223,6 @@
   font-size: 15px;
 }
 
-.patient-row-meta {
-  color: var(--text);
-  font-size: 12px;
-}
-
 .patient-stage {
   flex: 0 0 auto;
   font-size: 11px;
@@ -372,11 +367,6 @@
   margin: 0;
 }
 
-.patient-preview-meta {
-  color: var(--text);
-  font-size: 13px;
-}
-
 .patient-preview-identity .patient-stage {
   margin-top: 4px;
 }
@@ -472,5 +462,13 @@
 
 .patient-round-count {
   font-size: 14px;
+  color: var(--text);
+}
+
+.patient-round-date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
   color: var(--text);
 }

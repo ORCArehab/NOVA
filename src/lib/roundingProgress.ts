@@ -19,16 +19,16 @@ export interface HomeRounds {
 
 // dates: listRoundingDates() output (newest first). today: YYYY-MM-DD.
 // Keys are YYYY-MM-DD, so string comparison is date comparison.
-// Which date Home opens on: today's round, else the most recent past one,
-// else the soonest upcoming one, else today (an empty round).
-export function defaultRoundDate(dates: RoundingDateSummary[], today: string): string {
-  const { current, upcoming } = groupRoundsForHome(dates, today)
-  return current?.date ?? upcoming[0]?.date ?? today
-}
-
 export function groupRoundsForHome(dates: RoundingDateSummary[], today: string): HomeRounds {
   const upcoming = dates.filter((d) => d.date > today).reverse()
   const pastOrToday = dates.filter((d) => d.date <= today)
   const [current = null, ...previous] = pastOrToday
   return { current, upcoming, previous }
+}
+
+// Which date Home opens on: today's round, else the most recent past one,
+// else the soonest upcoming one, else today (an empty round).
+export function defaultRoundDate(dates: RoundingDateSummary[], today: string): string {
+  const { current, upcoming } = groupRoundsForHome(dates, today)
+  return current?.date ?? upcoming[0]?.date ?? today
 }

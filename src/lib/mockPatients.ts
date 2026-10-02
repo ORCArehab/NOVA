@@ -96,7 +96,7 @@ function seedPatients(specs: MockPatientSpec[], teamId: string): void {
 
 // Seeds a realistic spread of patients — no note, unsigned note, signed but
 // not uploaded, and fully complete — across 4 rounding dates, so the
-// Patients screen and home-page stats/rounding-date list have something
+// facility cards, facility rounds and rounding-date lists have something
 // real to show without clicking through the full flow 15 times by hand.
 export function seedMockPatients(teamId: string): void {
   seedPatients(MOCK_PATIENTS, teamId)

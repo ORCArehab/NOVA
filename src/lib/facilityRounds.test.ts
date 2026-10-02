@@ -78,6 +78,16 @@ describe('facility rounds', () => {
     expect(listFacilityRounds('team', '2026-09-01')).toEqual([])
   })
 
+  it('a round’s patients never include another facility’s or date’s patient (the preview is resolved from this list)', () => {
+    const elsewhere = createPatient('Other Facility', 'team', 'Cedar Grove', DAY)
+    const otherDay = createPatient('Other Day', 'team', 'Riverside SNF', '2026-09-30')
+    const here = createPatient('Here', 'team', 'Riverside SNF', DAY)
+    const ids = listFacilityPatients('team', 'riversidesnf', DAY).map((p) => p.id)
+    expect(ids).toEqual([here.id])
+    expect(ids).not.toContain(elsewhere.id)
+    expect(ids).not.toContain(otherDay.id)
+  })
+
   it('only reads: stored records are byte-for-byte unchanged, facility strings included', () => {
     createPatient('Alpha Two', 'team', 'riverside  snf', DAY)
     const before = store.get('nova:patients')

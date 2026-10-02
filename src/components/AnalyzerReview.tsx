@@ -143,9 +143,11 @@ function AnalyzerReview({ teamId, fileName, result, targetRoundingDate, onChange
             ))}
           </select>
         </label>
-        <label className="analyzer-field analyzer-field-wide">
+        {/* A div, not a <label>: the "Use it" button must not become what the
+            label activates. The label itself covers only the word "Facility". */}
+        <div className="analyzer-field analyzer-field-wide">
           <span>
-            Facility
+            <label htmlFor="analyzer-facility">Facility</label>
             {!result.facility && <em className="analyzer-field-hint"> — not found on the sheet</em>}
             {sheetDiffers && (
               <em className="analyzer-field-hint">
@@ -157,6 +159,7 @@ function AnalyzerReview({ teamId, fileName, result, targetRoundingDate, onChange
             )}
           </span>
           <input
+            id="analyzer-facility"
             value={facility}
             onChange={(e) => setFacility(e.target.value)}
             placeholder="Enter facility"
@@ -168,7 +171,7 @@ function AnalyzerReview({ teamId, fileName, result, targetRoundingDate, onChange
               <option key={f} value={f} />
             ))}
           </datalist>
-        </label>
+        </div>
         <div className="analyzer-field">
           <label htmlFor="analyzer-review-target">Rounding date</label>
           <RoundingDateSelect id="analyzer-review-target" teamId={teamId} value={date} onChange={onChangeTarget} />

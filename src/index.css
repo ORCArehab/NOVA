@@ -94,7 +94,7 @@ button {
 }
 
 /* A translucent overlay marking a row as already uploaded — shared between
-   the Patients screen and the Upload Tool so the same patient reads
+   the facility round and the Upload Tool so the same patient reads
    consistently no matter which list it's shown in. Deliberately no blur —
    the name and Delete button underneath need to stay legible, this is just
    a light haze plus the "Uploaded" label, not a way to hide the row.

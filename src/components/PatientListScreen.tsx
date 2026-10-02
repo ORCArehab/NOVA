@@ -9,9 +9,8 @@ import { formatDateLabel } from '../lib/dateUtils'
 import { seedMockPatients } from '../lib/mockPatients'
 import {
   deletePatient,
-  facilityKey,
+  listFacilityPatients,
   listFacilityRoundingDates,
-  listPatients,
   PATIENT_STAGE_LABELS,
   patientStage,
   signPatientNote,
@@ -61,7 +60,11 @@ function PatientListScreen({
   onSelect,
   onDelete,
 }: Props) {
-  const [patients, setPatients] = useState<Patient[]>(() => listPatients(teamId))
+  // Bumped after anything here writes to storage, to re-read it.
+  const [, setVersion] = useState(0)
+  const refresh = () => setVersion((v) => v + 1)
+  // Exactly this facility on this date, for this team (patientStore).
+  const scoped = listFacilityPatients(teamId, facility.key, roundDate)
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<PatientStage | ''>('')
@@ -74,13 +77,13 @@ function PatientListScreen({
   // Clicking a patient previews them on the right; Start Note / Edit Note
   // there is what opens the full workspace. Starts on the patient that was
   // open, so Back/Done from the workspace lands on the same preview. Held
-  // as an id and read from the live list, so Sign/Unsign updates the
-  // preview's status right away.
+  // as an id and read from this round's patients (see previewPatient), so
+  // Sign/Unsign updates the preview's status right away.
   const [previewId, setPreviewId] = useState<string | null>(activePatientId)
-  const previewPatient = patients.find((p) => p.id === previewId) ?? null
+  // Only ever a patient in this round — a patient opened elsewhere (another
+  // facility or date) is never previewed, so it can't be signed from here.
+  const previewPatient = scoped.find((p) => p.id === previewId) ?? null
 
-  // Grouped the same way as Home's cards (patientStore's facilityKey).
-  const scoped = patients.filter((p) => p.roundingDate === roundDate && facilityKey(p.facility) === facility.key)
 
   const query = normalize(search)
   const visiblePatients = scoped.filter(
@@ -109,7 +112,7 @@ function PatientListScreen({
       return
     }
     deletePatient(id)
-    setPatients(listPatients(teamId))
+    refresh()
     setConfirmDeleteId(null)
     if (previewId === id) setPreviewId(null)
     onDelete(id)
@@ -117,19 +120,19 @@ function PatientListScreen({
 
   function handleSeedMockPatients() {
     seedMockPatients(teamId)
-    setPatients(listPatients(teamId))
+    refresh()
   }
 
   function handleSign() {
     if (!previewPatient || !canSign) return
     signPatientNote(previewPatient.id, signer)
-    setPatients(listPatients(teamId))
+    refresh()
   }
 
   function handleUnsign() {
     if (!previewPatient || !canSign) return
     unsignPatientNote(previewPatient.id)
-    setPatients(listPatients(teamId))
+    refresh()
   }
 
   function renderPatientRow(p: Patient) {
@@ -244,13 +247,16 @@ function PatientListScreen({
         <div className="patient-round-header">
           <div className="patient-round-title">
             <h1>{facility.name}</h1>
-            <RoundingDateSelect
-              id="facility-round-date"
-              teamId={teamId}
-              rounds={facilityRounds}
-              value={roundDate}
-              onChange={onChangeDate}
-            />
+            <label className="patient-round-date">
+              <span>Rounding date</span>
+              <RoundingDateSelect
+                id="facility-round-date"
+                teamId={teamId}
+                rounds={facilityRounds}
+                value={roundDate}
+                onChange={onChangeDate}
+              />
+            </label>
           </div>
           {round.total > 0 && (
             <div className="patient-round-progress">
@@ -295,9 +301,10 @@ function PatientListScreen({
           <AddPatientForm
             teamId={teamId}
             initialFacility={facility.name}
+            lockFacility
             roundingDate={roundDate}
             onAdded={() => {
-              setPatients(listPatients(teamId))
+              refresh()
               setAddOpen(false)
             }}
             onCancel={() => setAddOpen(false)}

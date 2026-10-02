@@ -327,11 +327,12 @@ function App() {
   }
 
   // The Analyzer imports into the round it was opened from: a facility
-  // round's facility and date, or Home's date. Both stay editable there.
+  // round's facility and date (a note belongs to the round it was opened
+  // from), or Home's date. Both stay editable there.
   function handleOpenAnalyzer() {
     if (!currentUser) return
     const date = roundDate ?? defaultRoundDate(listRoundingDates(currentUser.teamId), todayDateKey())
-    setAnalyzerContext({ date, facility: screen === 'facility' && facility ? facility.name : null })
+    setAnalyzerContext({ date, facility: (screen === 'facility' || screen === 'app') && facility ? facility.name : null })
     setScreen('analyzer')
   }
 

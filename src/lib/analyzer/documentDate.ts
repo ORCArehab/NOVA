@@ -18,7 +18,7 @@ export interface RoundOption {
 }
 
 // Existing rounds (patientStore's listRoundingDates — the same source as
-// Home and the Patients screen), newest first, plus today even when it
+// Home's and the facility rounds' date selectors), newest first, plus today even when it
 // has no patients yet: on a normal morning, today's round doesn't exist
 // until this import creates it.
 export function roundOptions(rounds: RoundingDateSummary[], today: string): RoundOption[] {

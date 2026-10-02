@@ -12,7 +12,7 @@ export interface ImportOutcome {
 
 // The only place the analyzer creates patients, and only ever called from
 // an explicit "Import" click on the review screen. Goes through the same
-// createPatient as the Patients screen's Add form, so imported patients
+// createPatient as the Add Patient form, so imported patients
 // start in the same initial state (no note, unsigned, not uploaded) and
 // land on the chosen rounding date like any other patient.
 export function importPatients(names: string[], teamId: string, facility: string, roundingDate: string): ImportOutcome {

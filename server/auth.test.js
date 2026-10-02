@@ -109,6 +109,9 @@ const BASE_ENV = {
   SESSION_SECRET,
   NOVA_API_KEY: NOVA_KEY,
   NODE_ENV: 'test',
+  // As in the R2 production rollout: no AI. Empty rather than unset, so a
+  // local .env (loaded by server/app.js) can't fill it in.
+  OPENAI_API_KEY: '',
 };
 const MANAGED_ENV = [...Object.keys(BASE_ENV), 'ORCA_API_URL', 'VERCEL', 'NOVA_SCRIBE_TEAMS'];
 const savedEnv = Object.fromEntries(MANAGED_ENV.map((key) => [key, process.env[key]]));
@@ -559,6 +562,24 @@ describe('demo sign-in (local dev only)', () => {
     await b.request('/api/auth/demo', { method: 'POST', body: { role: 'provider' } });
     process.env.VERCEL = '1';
     expect((await b.request('/api/auth/me')).status).toBe(401);
+  });
+});
+
+describe('without OPENAI_API_KEY (the R2 production configuration)', () => {
+  it('the app starts and signs people in, and the AI routes say AI isn’t enabled', async () => {
+    expect(process.env.OPENAI_API_KEY).toBe('');
+    const b = browser();
+    await b.signIn();
+    expect((await b.request('/api/auth/me')).status).toBe(200);
+    for (const path of ['/api/reword', '/api/chat', '/api/update-note', '/api/suggestions', '/api/apply-suggestions', '/api/analyze-document/header']) {
+      const res = await b.request(path, { method: 'POST', body: { text: 'synthetic', noteType: 'initial' } });
+      expect(res.status, path).toBe(503);
+      expect(res.json.error).toMatch(/AI features aren’t enabled/);
+    }
+  });
+
+  it('the AI gate sits behind sign-in', async () => {
+    expect((await browser().request('/api/reword', { method: 'POST', body: {} })).status).toBe(401);
   });
 });
 

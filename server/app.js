@@ -10,6 +10,7 @@ import analyzeDocumentRouter from './routes/analyzeDocument.js';
 import authRouter from './routes/auth.js';
 import { requireAuth } from './session.js';
 import { auditLog } from './auditLog.js';
+import { aiEnabled } from './openaiClient.js';
 
 // The Express app itself, with no listener attached — shared between the
 // local dev server (server/index.js) and the Vercel serverless entry
@@ -35,12 +36,19 @@ app.use('/api/auth', express.json({ limit: '16kb' }), authRouter);
 app.use('/api', requireAuth);
 app.use(express.json({ limit: '2mb' }));
 
-app.use('/api/reword', rewordRouter);
-app.use('/api/chat', chatRouter);
-app.use('/api/update-note', updateNoteRouter);
-app.use('/api/suggestions', suggestionsRouter);
-app.use('/api/apply-suggestions', applySuggestionsRouter);
-app.use('/api/analyze-document', analyzeDocumentRouter);
+// The AI routes need OPENAI_API_KEY. A deployment can leave it unset: NOVA
+// still signs people in, and these routes say AI isn't enabled.
+function requireAi(req, res, next) {
+  if (!aiEnabled()) return res.status(503).json({ error: 'NOVA’s AI features aren’t enabled on this deployment.' });
+  next();
+}
+
+app.use('/api/reword', requireAi, rewordRouter);
+app.use('/api/chat', requireAi, chatRouter);
+app.use('/api/update-note', requireAi, updateNoteRouter);
+app.use('/api/suggestions', requireAi, suggestionsRouter);
+app.use('/api/apply-suggestions', requireAi, applySuggestionsRouter);
+app.use('/api/analyze-document', requireAi, analyzeDocumentRouter);
 
 // Last resort for anything a route didn't handle. Logs only what failed and
 // where — never the request body (note text is PHI), cookies or tokens —

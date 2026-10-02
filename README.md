@@ -189,7 +189,8 @@ function.
 To deploy: connect this repo in Vercel (or `vercel --prod` if using the
 CLI), then set these under Project Settings → Environment Variables:
 
-- `OPENAI_API_KEY` — required, the app will fail on cold start without it.
+- `OPENAI_API_KEY` — needed for the AI features. Without it NOVA still runs
+  and signs people in, and the AI routes answer that AI isn't enabled.
 - `OPENAI_MODEL` — optional, defaults to `gpt-4o-mini`.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — required for sign-in (see
   [Sign-in](#sign-in)).

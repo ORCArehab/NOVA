@@ -13,9 +13,9 @@ never as invented clinical fact.
 1. `npm install`
 2. Copy `.env.example` to `.env` and fill in `OPENAI_API_KEY` (get one at
    [platform.openai.com/api-keys](https://platform.openai.com/api-keys)).
-   For Google sign-in locally, also fill in `GOOGLE_CLIENT_ID` and
-   `GOOGLE_CLIENT_SECRET` (see [Google Workspace sign-in](#google-workspace-sign-in)
-   below) — without them, the local-dev-only demo buttons still work.
+   Real sign-in also needs the Google and ORCA settings (see
+   [Sign-in](#sign-in) below) — without them, the local-dev-only demo
+   buttons still work.
 3. `npm run gen-cert` — generates a self-signed TLS cert into `certs/`
    (gitignored) so both dev servers can run over HTTPS. Your browser will
    warn that the cert isn't trusted; that's expected for a local dev cert.
@@ -111,24 +111,41 @@ Not supported yet: handwritten names, and sheets scanned in black-and-white
 (the highlighter disappears).
 
 Tests: `npm test` (vitest), which covers highlight detection, row
-validation, duplicate detection, import and the server's input/output
-validation.
+validation, duplicate detection, import, the server's input/output
+validation, and sign-in and sessions against a fake ORCA
+(`server/auth.test.js`).
 
-## Google Workspace sign-in
+## Sign-in
 
-There's no sign-in or sign-up form. The app is reached from the Google
-Workspace app launcher, and only verified Google Workspace accounts on
-`ALLOWED_EMAIL_DOMAIN` (default `orcarehab.com`) get in
-(`server/routes/auth.js`). Anyone already signed into Workspace goes
-straight through without seeing a Google screen. A successful sign-in sets
-a signed, HttpOnly session cookie (`server/session.js`, 12 hours) that every
-other `/api` route requires.
+There's no sign-in or sign-up form, and NOVA keeps no accounts or roles of
+its own. Identity comes from the ORCA Backend API:
 
-On someone's first visit they pick a role once: provider (starts their own
-team), or scribe (picks their supervising provider). Someone who already
-has an account in the accounts store skips the role question. The Team
-page is read-only; membership is managed in the accounts database, not
-in NOVA.
+1. The app is reached from the Google Workspace app launcher. NOVA sends the
+   browser through Google with its own OAuth client
+   (`server/routes/auth.js`); anyone already signed into Workspace goes
+   straight through without seeing a Google screen.
+2. NOVA's server sends the resulting Google ID token to ORCA
+   (`POST /v1/identity/sessions`, authenticated with `NOVA_API_KEY`). ORCA
+   verifies it, checks it's an active ORCA Workspace account, and returns the
+   person, their roles and an ORCA user token (`server/orcaClient.js`).
+3. ORCA's roles decide access (`server/identity.js`): **PROVIDER** uses NOVA
+   as a provider (can sign notes), **SCRIBE** as a scribe; someone with both
+   is a provider. Anyone else is turned away. Roles are assigned in ORCA, never
+   chosen in NOVA.
+4. The session is an encrypted, HttpOnly cookie (`server/session.js`) holding
+   the ORCA token. It ends after 30 idle minutes or 12 hours, whichever comes
+   first, and never outlives the ORCA token. NOVA re-checks the person with
+   ORCA at least every 5 minutes and on every page load, so role changes and
+   deactivations in ORCA take effect within minutes.
+
+The browser never sees `NOVA_API_KEY`, the ORCA token, the Google client
+secret or the session key.
+
+Teams: a provider's patients are their own; a scribe works in their own list
+unless `NOVA_SCRIBE_TEAMS` maps them to a provider's. That mapping is
+compatibility only — it chooses a patient list and grants nothing — until
+ORCA's supervision records replace it. The Team page shows only the
+signed-in user.
 
 Setup (one time):
 
@@ -142,13 +159,16 @@ Setup (one time):
    - `http://localhost:5173/api/auth/google/callback` for local dev (use
      `https://` if you ran `npm run gen-cert`)
 3. Put the client ID and secret in `GOOGLE_CLIENT_ID` and
-   `GOOGLE_CLIENT_SECRET`.
+   `GOOGLE_CLIENT_SECRET`, and list the client ID in the ORCA API's
+   `GOOGLE_CLIENT_IDS` as `nova:<client id>` (ORCA only accepts NOVA
+   sign-ins issued to NOVA's own client).
 4. To add it to the app launcher, go to Google Admin console → **Apps → Web
    and mobile apps → Add app → Add custom web app** (or a shared bookmark)
    and point it at the deployed URL.
 
-The **View as Provider / View as Scribe** demo buttons bypass Google, so they
-only exist in local dev. The frontend shows them only under Vite's dev
+The **View as Provider / View as Scribe** demo buttons bypass Google and ORCA
+with fixed synthetic people (`server/demo.js`), so they only exist in local
+dev. The frontend shows them only under Vite's dev
 server, and the server refuses `/api/auth/demo` on Vercel or when
 `NODE_ENV=production`.
 
@@ -172,10 +192,15 @@ CLI), then set these under Project Settings → Environment Variables:
 - `OPENAI_API_KEY` — required, the app will fail on cold start without it.
 - `OPENAI_MODEL` — optional, defaults to `gpt-4o-mini`.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — required for sign-in (see
-  [Google Workspace sign-in](#google-workspace-sign-in)).
-- `SESSION_SECRET` — required, a long random string
-  (`openssl rand -hex 32`); the app fails on cold start without it.
+  [Sign-in](#sign-in)).
+- `ORCA_API_URL`, `NOVA_API_KEY` — required for sign-in: the ORCA Backend
+  API's URL and NOVA's application key for it.
+- `SESSION_SECRET` — required, at least 32 random characters
+  (`openssl rand -hex 32`); encrypts the session cookie. Sign-in reports
+  "not configured" without it.
 - `ALLOWED_EMAIL_DOMAIN` — optional, defaults to `orcarehab.com`.
+- `NOVA_SCRIBE_TEAMS` — optional, `scribe@orcarehab.com:<provider ORCA person
+  id>,...` (see [Sign-in](#sign-in)).
 
 Note that `certs/` (the local self-signed TLS cert) is irrelevant on
 Vercel — Vercel terminates HTTPS itself, so `api/index.js` never touches
@@ -184,19 +209,6 @@ instead of a local file when deployed (`server/auditLog.js` detects the
 `VERCEL` env var Vercel sets automatically) — view it under your Vercel
 project's Function Logs, since a serverless function's local filesystem
 isn't persistent between invocations.
-
-**Accounts are not reliably durable on Vercel yet.**
-`server/userStore.js` is a JSON-file "database"
-— fine for the local long-running dev server, but Vercel's filesystem is
-read-only outside `/tmp`. It detects `VERCEL` and redirects there instead of
-crashing, but `/tmp` isn't guaranteed to persist or be shared across
-invocations, so accounts can still reset unpredictably
-between requests on a real deployment (a cold instance won't remember
-someone who onboarded a minute ago, so they'd be asked their role again).
-Sign-in itself survives this, since the session lives in a signed cookie,
-not on the server. This is a stopgap against a hard
-500, not a fix — a real deployment needs an actual persistent store (Vercel
-KV/Postgres, or another hosted DB) wired into that file instead.
 
 ## Privacy / compliance note
 

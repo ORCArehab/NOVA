@@ -2,28 +2,31 @@ import { useEffect, useState } from 'react'
 import './LoginScreen.css'
 import { ApiError, demoSignIn, GOOGLE_LOGIN_URL } from '../lib/apiClient'
 import { seedDemoPatientsIfEmpty } from '../lib/mockPatients'
-import { resolveTeamId } from '../lib/team'
-import type { Role, TeamMember } from '../lib/types'
+import type { CurrentUser, Role } from '../lib/types'
 
 interface Props {
   // Why there's no session — shown instead of silently bouncing to Google
   // again, which would just loop on the same failure (or undo a sign-out).
   authError: string | null
   signedOut: boolean
-  onLogin: (member: TeamMember) => void
+  onLogin: (user: CurrentUser) => void
 }
 
 // Messages for server/routes/auth.js's ?authError= codes.
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   domain: 'Only @orcarehab.com Google Workspace accounts can use this app.',
+  no_access: 'Your ORCA account doesn’t have NOVA access. Ask an ORCA administrator to give you the Provider or Scribe role.',
+  disabled: 'Your ORCA account is disabled. Contact an ORCA administrator.',
+  conflict: 'This Google account doesn’t match your ORCA account. Contact an ORCA administrator.',
+  unavailable: 'NOVA can’t reach ORCA to confirm your sign-in right now. Please try again in a moment.',
   cancelled: 'Google sign-in was cancelled.',
   state: 'Your sign-in link expired. Please try again.',
-  not_configured: 'Google sign-in isn’t configured on the server yet (GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET).',
+  not_configured: 'Sign-in isn’t configured on the server yet.',
   failed: 'Google sign-in failed. Please try again.',
 }
 
 // Local dev only (Vite's dev server) — the server refuses demo sign-in
-// anywhere else regardless (see server/userStore.js's demoLoginEnabled).
+// anywhere else regardless (see server/demo.js's demoLoginEnabled).
 const DEMO_ENABLED = import.meta.env.DEV
 
 // There's no sign-in or sign-up form — the app is reached through the
@@ -50,9 +53,9 @@ function LoginScreen({ authError, signedOut, onLogin }: Props) {
     setSubmitting(true)
     setError(null)
     try {
-      const member = await demoSignIn(role)
-      seedDemoPatientsIfEmpty(resolveTeamId(member))
-      onLogin(member)
+      const user = await demoSignIn(role)
+      seedDemoPatientsIfEmpty(user.teamId)
+      onLogin(user)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load the demo.')
     } finally {

@@ -1,15 +1,14 @@
 import type {
   ApiErrorResponse,
   ApplySuggestionsResponse,
-  AuthSession,
   ChatHistoryMessage,
   ChatResponse,
+  CurrentUser,
   NoteType,
   Role,
   RewordResponse,
   Suggestion,
   SuggestionsResponse,
-  TeamMember,
   UpdateNoteResponse,
 } from './types'
 import type { HeaderReading, RowReading } from './analyzer/types'
@@ -18,23 +17,6 @@ export class ApiError extends Error {}
 
 function readErrorMessage(data: unknown): string {
   return (data as ApiErrorResponse | null)?.error ?? 'Something went wrong. Please try again.'
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  let res: Response
-  try {
-    res = await fetch(url)
-  } catch {
-    throw new ApiError("Can't reach the server. Is it running?")
-  }
-
-  const data = await res.json().catch(() => null)
-
-  if (!res.ok) {
-    throw new ApiError(readErrorMessage(data))
-  }
-
-  return data as T
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
@@ -85,23 +67,23 @@ export function applySuggestions(noteText: string, suggestions: string[]): Promi
 // a session cookie that every other /api call rides on automatically.
 export const GOOGLE_LOGIN_URL = '/api/auth/google/login'
 
-// The signed-in identity, or null if there's no valid session. member is
-// null on someone's first visit, until they pick a role.
-export async function fetchSession(): Promise<AuthSession | null> {
+// The signed-in user, or why there isn't one: 'signedOut' (no valid
+// session) or 'noAccess' (signed in to ORCA without a NOVA role). The
+// server re-checks their ORCA roles on every call.
+export type SessionResult = { status: 'signedIn'; user: CurrentUser } | { status: 'signedOut' } | { status: 'noAccess' }
+
+export async function fetchSession(): Promise<SessionResult> {
   let res: Response
   try {
     res = await fetch('/api/auth/me')
   } catch {
     throw new ApiError("Can't reach the server. Is it running?")
   }
-  if (res.status === 401) return null
   const data = await res.json().catch(() => null)
+  if (res.status === 401) return { status: 'signedOut' }
+  if (res.status === 403) return { status: 'noAccess' }
   if (!res.ok) throw new ApiError(readErrorMessage(data))
-  return data as AuthSession
-}
-
-export function completeOnboarding(role: Role, supervisorId: string | null): Promise<TeamMember> {
-  return postJson<TeamMember>('/api/auth/onboard', { role, supervisorId })
+  return { status: 'signedIn', user: (data as { user: CurrentUser }).user }
 }
 
 export async function signOut(): Promise<void> {
@@ -109,12 +91,8 @@ export async function signOut(): Promise<void> {
 }
 
 // Local dev only — the server 404s this anywhere else.
-export function demoSignIn(role: Role): Promise<TeamMember> {
-  return postJson<TeamMember>('/api/auth/demo', { role })
-}
-
-export function fetchTeamRoster(): Promise<TeamMember[]> {
-  return getJson<TeamMember[]>('/api/team')
+export function demoSignIn(role: Role): Promise<CurrentUser> {
+  return postJson<{ user: CurrentUser }>('/api/auth/demo', { role }).then((r) => r.user)
 }
 
 // Document Analyzer — see server/routes/analyzeDocument.js. Only cropped

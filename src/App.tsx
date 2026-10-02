@@ -7,7 +7,6 @@ import ChatPanel from './components/ChatPanel'
 import CompletenessPanel, { type CompletenessStatus } from './components/CompletenessPanel'
 import ImportPdfPanel from './components/ImportPdfPanel'
 import LoginScreen from './components/LoginScreen'
-import OnboardingScreen from './components/OnboardingScreen'
 import OutputPanel, { type RewordStatus } from './components/OutputPanel'
 import PatientListScreen from './components/PatientListScreen'
 import RoleSelectScreen from './components/RoleSelectScreen'
@@ -18,8 +17,7 @@ import UploadToolScreen from './components/UploadToolScreen'
 import { ApiError, applySuggestions, fetchSession, rewordText, signOut, updateNoteWithAnswer } from './lib/apiClient'
 import { checkCompletenessLocal } from './lib/completenessCheck'
 import { getPatientById, saveNote } from './lib/patientStore'
-import { resolveTeamId } from './lib/team'
-import type { CurrentUser, NoteType, Patient, Signer, TeamMember } from './lib/types'
+import type { CurrentUser, NoteType, Patient, Signer } from './lib/types'
 
 // server/routes/auth.js sends the browser back to /?authError=<code> when
 // Google sign-in is rejected. Read once, then scrubbed from the address
@@ -38,8 +36,6 @@ function consumeAuthError(): string | null {
 type AuthState =
   | { status: 'loading' }
   | { status: 'signedOut'; authError: string | null; deliberate: boolean }
-  // Google identified them, but they have no account yet — first visit.
-  | { status: 'onboarding'; name: string; email: string }
   | { status: 'signedIn' }
 
 function App() {
@@ -55,15 +51,11 @@ function App() {
     const authError = consumeAuthError()
     fetchSession()
       .then((session) => {
-        if (!session) {
-          setAuth({ status: 'signedOut', authError, deliberate: false })
-        } else if (!session.member) {
-          setAuth({ status: 'onboarding', name: session.name, email: session.email })
-        } else {
-          handleLogin(session.member)
-        }
+        if (session.status === 'signedIn') handleLogin(session.user)
+        else if (session.status === 'noAccess') setAuth({ status: 'signedOut', authError: 'no_access', deliberate: false })
+        else setAuth({ status: 'signedOut', authError, deliberate: false })
       })
-      .catch(() => setAuth({ status: 'signedOut', authError: 'failed', deliberate: false }))
+      .catch(() => setAuth({ status: 'signedOut', authError: 'unavailable', deliberate: false }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -317,11 +309,11 @@ function App() {
     else setScreen('home')
   }
 
-  // Sets both role and team for the session in one step — called with the
-  // account behind the SSO session, a just-finished onboarding, or (local
-  // dev only) a demo account.
-  function handleLogin(member: TeamMember) {
-    setCurrentUser({ id: member.id, name: member.name, email: member.email, role: member.role, teamId: resolveTeamId(member) })
+  // Takes the user exactly as the server reported them — role and team both
+  // come from the server (ORCA roles), never from anything chosen here.
+  // Called with the user behind the session, or (local dev only) a demo user.
+  function handleLogin(user: CurrentUser) {
+    setCurrentUser(user)
     setAuth({ status: 'signedIn' })
     setScreen('home')
   }
@@ -347,10 +339,6 @@ function App() {
 
   if (auth.status === 'loading') {
     pageContent = null
-  } else if (auth.status === 'onboarding') {
-    pageContent = (
-      <OnboardingScreen name={auth.name} email={auth.email} onComplete={handleLogin} onSignOut={() => void handleSignOut()} />
-    )
   } else if (!currentUser) {
     pageContent = (
       <LoginScreen

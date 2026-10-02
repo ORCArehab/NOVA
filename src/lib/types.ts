@@ -28,9 +28,8 @@ export interface Patient {
   // lib/dateUtils.ts), not a timestamp, since it's a calendar day grouping
   // rather than a moment in time.
   roundingDate: string
-  // Which team owns this patient — always a provider's TeamMember id (see
-  // lib/team.ts's resolveTeamId), whether the patient was added by that
-  // provider or one of their scribes. Scopes every patient list to "your
+  // Which team owns this patient — the CurrentUser.teamId of whoever added
+  // it (a provider's own id, shared by scribes working on their team). Scopes every patient list to "your
   // team" once someone logs in.
   teamId: string
   // Which facility (SNF, hospital floor, etc.) the patient is being seen
@@ -40,30 +39,11 @@ export interface Patient {
   facility: string
 }
 
-// A registered account, persisted server-side (see server/userStore.js,
-// fetched via lib/apiClient.ts). Providers supervise scribes —
-// supervisorId names which provider a scribe signed up under, and is
-// always null for a provider.
-export interface TeamMember {
-  id: string
-  name: string
-  email: string
-  role: Role
-  supervisorId: string | null
-}
-
-// GET /api/auth/me — who Google says is signed in, plus their account.
-// member is null until they finish first-visit onboarding.
-export interface AuthSession {
-  email: string
-  name: string
-  member: TeamMember | null
-}
-
-// Identity of whoever is currently signed in (see App.tsx's handleLogin) —
-// restored from the session cookie on load, and gone the moment they sign
-// out. teamId is derived from the TeamMember at login time (see lib/team.ts's
-// resolveTeamId) and is what scopes every patient list.
+// Identity of whoever is currently signed in, exactly as the server reports
+// it (GET /api/auth/me, see server/identity.js's clientUser) — the role comes
+// from their ORCA roles and is never chosen in the browser. Restored from the
+// session cookie on load, and gone the moment they sign out. teamId is what
+// scopes every patient list.
 export interface CurrentUser {
   id: string
   name: string

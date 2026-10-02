@@ -244,9 +244,10 @@
   background: var(--code-bg);
 }
 
+/* Work has begun (source text, no note yet) — set apart from Not started. */
 .patient-stage-inProgress {
-  color: var(--text);
-  background: var(--code-bg);
+  color: #0369a1;
+  background: rgba(14, 165, 233, 0.13);
 }
 
 .patient-stage-awaitingSignature {

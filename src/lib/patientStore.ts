@@ -1,3 +1,4 @@
+import { normalizeFacility } from './analyzer/duplicates'
 import { dateKey, todayDateKey } from './dateUtils'
 import type { NoteType, Patient, Signer } from './types'
 
@@ -185,24 +186,27 @@ export interface RoundingDateSummary {
 // signature, and an upload — the full pipeline, not just one stage of it.
 // Rounding-date progress (Home) and completeness are both derived from
 // this, so they can't drift apart.
-export function isPatientComplete(p: Patient): boolean {
+export function isPatientComplete(p: Pick<Patient, 'reworded' | 'signed' | 'uploaded'>): boolean {
   return Boolean(p.reworded && p.signed && p.uploaded)
 }
 
 // Where a patient is in the workflow — the next thing that needs to
 // happen for them. Checked in pipeline order, so each stage implies the
 // ones before it are done; 'complete' is exactly isPatientComplete.
-export type PatientStage = 'noNote' | 'awaitingSignature' | 'needsUpload' | 'complete'
+// 'inProgress' is work begun (source text imported) with no note yet —
+// calculated like every other stage, never stored.
+export type PatientStage = 'noNote' | 'inProgress' | 'awaitingSignature' | 'needsUpload' | 'complete'
 
-export function patientStage(p: Patient): PatientStage {
-  if (!p.reworded) return 'noNote'
+export function patientStage(p: Pick<Patient, 'extractedText' | 'reworded' | 'signed' | 'uploaded'>): PatientStage {
+  if (!p.reworded) return p.extractedText?.trim() ? 'inProgress' : 'noNote'
   if (!p.signed) return 'awaitingSignature'
   if (!isPatientComplete(p)) return 'needsUpload'
   return 'complete'
 }
 
 export const PATIENT_STAGE_LABELS: Record<PatientStage, string> = {
-  noNote: 'No note yet',
+  noNote: 'Not started',
+  inProgress: 'In progress',
   awaitingSignature: 'Awaiting signature',
   needsUpload: 'Needs upload',
   complete: 'Complete',
@@ -224,5 +228,66 @@ export function listRoundingDates(teamId: string): RoundingDateSummary[] {
       total: group.length,
       complete: group.filter(isPatientComplete).length,
     }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+}
+
+// --- Facility rounds ---------------------------------------------------------
+// Facility is free text on each record, so grouping happens here at read time
+// with the Analyzer's existing normalizeFacility ("Riverside SNF" and
+// "riverside snf" are one facility). Stored strings are never rewritten.
+
+export function facilityKey(facility: string): string {
+  return normalizeFacility(facility) || facility.trim().toLowerCase()
+}
+
+export interface FacilityRoundSummary {
+  key: string
+  // The spelling most of its records use (alphabetically first on a tie).
+  name: string
+  date: string
+  total: number
+  complete: number
+}
+
+function displayName(names: string[]): string {
+  const counts = new Map<string, number>()
+  for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1)
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0]
+}
+
+// The facilities with patients on one rounding date, alphabetical.
+export function listFacilityRounds(teamId: string, date: string): FacilityRoundSummary[] {
+  const groups = new Map<string, Patient[]>()
+  for (const p of listPatients(teamId).filter((p) => p.roundingDate === date)) {
+    const key = facilityKey(p.facility)
+    groups.set(key, [...(groups.get(key) ?? []), p])
+  }
+  return [...groups.entries()]
+    .map(([key, group]) => ({
+      key,
+      name: displayName(group.map((p) => p.facility)),
+      date,
+      total: group.length,
+      complete: group.filter(isPatientComplete).length,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// One facility's patients on one rounding date, in the existing list order.
+export function listFacilityPatients(teamId: string, key: string, date: string): Patient[] {
+  return listPatients(teamId).filter((p) => p.roundingDate === date && facilityKey(p.facility) === key)
+}
+
+// The rounding dates one facility has patients on, newest first — the same
+// shape as listRoundingDates, so the date selector and progress reuse it.
+export function listFacilityRoundingDates(teamId: string, key: string): RoundingDateSummary[] {
+  return listRoundingDatesOf(listPatients(teamId).filter((p) => facilityKey(p.facility) === key))
+}
+
+function listRoundingDatesOf(patients: Patient[]): RoundingDateSummary[] {
+  const byDate = new Map<string, Patient[]>()
+  for (const p of patients) byDate.set(p.roundingDate, [...(byDate.get(p.roundingDate) ?? []), p])
+  return [...byDate.entries()]
+    .map(([date, group]) => ({ date, total: group.length, complete: group.filter(isPatientComplete).length }))
     .sort((a, b) => b.date.localeCompare(a.date))
 }

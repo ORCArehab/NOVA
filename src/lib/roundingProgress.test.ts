@@ -66,7 +66,7 @@ describe('isPatientComplete', () => {
 describe('patientStage', () => {
   it('follows the workflow order and agrees with isPatientComplete', () => {
     const p = { reworded: null, signed: false, uploaded: false } as Patient
-    expect(patientStage(p)).toBe('noNote')
+    expect(patientStage(p)).toBe(p.extractedText?.trim() ? 'inProgress' : 'noNote')
     expect(patientStage({ ...p, reworded: 'note' })).toBe('awaitingSignature')
     expect(patientStage({ ...p, reworded: 'note', signed: true })).toBe('needsUpload')
     expect(patientStage({ ...p, reworded: 'note', signed: true, uploaded: true })).toBe('complete')
